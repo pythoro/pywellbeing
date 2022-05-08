@@ -73,11 +73,14 @@ class Person():
     def set_valence(self, xs, base=None, random_seed=None):
         p = self._params
         random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
+        random_seed += 10
         rs = np.random.default_rng(random_seed)
         base = np.zeros(p['n'] * 2) if base is None else base
         error = rs.normal(scale=1.0, size=p['n'] * 2)
         bias = xs * p['alpha']
         valence = base + error + bias
+        # Ensure valence can't grow indefinately...
+        valence = np.clip(valence, -9, 9)
         return valence
     
     def setup(self, attention=None, valence=None, random_seed=None):
@@ -216,30 +219,37 @@ class Population():
     def set_life_history(self, lh):
         self.lh = lh
     
-    def set_population(self, n, *args, **kwargs):
+    def set_population(self, n, random_seed=None, *args, **kwargs):
         pop = []
         for i in range(n):
             person = Person(*args, **kwargs)
-            person.setup()
+            person.setup(random_seed=random_seed)
             pop.append(person)
         self.pop = pop
     
-    def _split(self, n=5):
+    def _split(self, n_fail):
         wbs = [p.objective_wellbeing() for p in self.pop]
         print(np.mean(wbs))
         self.wbs_means.append(np.mean(wbs))
         ind_sorted = np.argsort(wbs)
         top = ind_sorted[-1]
-        bottom = ind_sorted[:n]
-        breeders = ind_sorted[n:-1]
+        bottom = ind_sorted[:n_fail]
+        breeders = ind_sorted[n_fail:-1]
         pop = np.array(self.pop)
         return pop[top], pop[bottom].tolist(), pop[breeders].tolist()
     
     def get_ave_valence(self):
         return np.mean(np.array([p.valence for p in self.pop]), axis=0)
     
-    def breed(self, n=5):
-        top, bottom, breeders = self._split(n=n)
+    def get_ave_effort(self):
+        return np.mean(np.array([p.effort for p in self.pop]), axis=0)
+    
+    def get_ave_agency(self):
+        return np.mean(np.array([p.get_agency() for p in self.pop]), axis=0)
+    
+    def breed(self, p_survive=0.5):
+        n_fail = int(np.floor((1 - p) * len(self.pop)))
+        top, bottom, breeders = self._split(n_fail=n_fail)
         new = []
         for i in range(len(self.pop)):
             other = np.random.choice(breeders, size=1)[0]
@@ -253,11 +263,11 @@ class Population():
             lh.set_person(p)
             lh.run()
     
-    def run(self, gen=50, n=10):
+    def run(self, gen=50, p_survive=0.5):
         for i in range(gen):
             print(i)
             self.run_generation()
             self.valence_means.append(self.get_ave_valence())
-            self.breed(n=n)
+            self.breed(p_survive=p_survive)
         
     
