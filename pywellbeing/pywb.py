@@ -11,7 +11,7 @@ from scipy.stats import genpareto, norm, logistic
 
 class Context():
     """ Generates events with some effect with some likelihood """
-    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=0.3):
+    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0):
         self._params = {'n': n,
                         'x_max': x_max,
                         'c': c,
@@ -87,18 +87,18 @@ class Person():
         self.base_attention = np.zeros(p['n'] * 2) if attention is None else attention
         self.attention = self.set_attention(base=attention,
                                             random_seed=random_seed)
-        self._att_lasting = np.zeros_like(self.attention)
         self.valence = self.set_valence(xs,
                                         base=valence,
                                         random_seed=random_seed)
         self.effort = np.zeros(p['n'] * 2)
-        self._eff_lasting = np.zeros_like(self.effort)
     
     def determine_attend(self, ind):
+        """ This needs checking """
+        return True
         att = self.attention
         p = self._params
         a = att[ind] + self.base_attention[ind]
-        p_will_attend = logistic.cdf(att[ind] / p['f_att'])
+        p_will_attend = min(np.argsort(att)[ind] / len(att), 0.1)
         attend = p_will_attend >= np.random.rand()
         return attend
 
@@ -109,10 +109,7 @@ class Person():
     
     def decay_attention(self):
         """ Decay toward uniform attention """
-        diff = self.attention - self._att_lasting
-        self._att_lasting += diff * 1e-2
-        self.attention = (diff * self._params['a_decay'] \
-                          + self._att_lasting)
+        self.attention = self.attention * self._params['a_decay'] 
 
     def mod_effort(self, ind, valence):
         current = self.effort[ind]
@@ -124,10 +121,7 @@ class Person():
     
     def decay_effort(self):
         """ Decay toward uniform attention """
-        diff = self.effort - self._eff_lasting
-        self._eff_lasting += diff * 1e-2
-        self.effort = (diff * self._params['a_decay'] \
-                          + self._eff_lasting)
+        self.effort = self.effort * self._params['a_decay']
     
     def store_history(self, ind, x, valence, attend):
         self.history['ind'].append(ind)
@@ -140,9 +134,9 @@ class Person():
         valence = self.valence[ind]
         if learn:
             if attend:
-                self.mod_attention(ind, valence)
+                # self.mod_attention(ind, valence)
                 self.mod_effort(ind, valence)
-            self.decay_attention()
+            # self.decay_attention()
             self.decay_effort()
         self.store_history(ind, x, valence, attend)
 
@@ -172,7 +166,7 @@ class Person():
     
     def breed(self, other):
         """ Create a child """
-        n = self._params['p'] * 2
+        n = self._params['n'] * 2
         from_other = np.random.choice([False, True], size=n)
         attention = self.base_attention
         attention[from_other] = other.base_attention[from_other]
@@ -213,8 +207,57 @@ class Life_History():
             self.run_one(**d)
 
                 
-
-
 class Population():
     """ Put lots of people through life histories and generations """
-    pass
+    def __init__(self):
+        self.valence_means = []
+        self.wbs_means = []
+    
+    def set_life_history(self, lh):
+        self.lh = lh
+    
+    def set_population(self, n, *args, **kwargs):
+        pop = []
+        for i in range(n):
+            person = Person(*args, **kwargs)
+            person.setup()
+            pop.append(person)
+        self.pop = pop
+    
+    def _split(self, n=5):
+        wbs = [p.objective_wellbeing() for p in self.pop]
+        print(np.mean(wbs))
+        self.wbs_means.append(np.mean(wbs))
+        ind_sorted = np.argsort(wbs)
+        top = ind_sorted[-1]
+        bottom = ind_sorted[:n]
+        breeders = ind_sorted[n:-1]
+        pop = np.array(self.pop)
+        return pop[top], pop[bottom].tolist(), pop[breeders].tolist()
+    
+    def get_ave_valence(self):
+        return np.mean(np.array([p.valence for p in self.pop]), axis=0)
+    
+    def breed(self, n=5):
+        top, bottom, breeders = self._split(n=n)
+        new = []
+        for i in range(len(self.pop)):
+            other = np.random.choice(breeders, size=1)[0]
+            new.append(top.breed(other))
+        self.pop = new
+    
+    def run_generation(self):
+        lh = self.lh
+        for i, p in enumerate(self.pop):
+            # print('   ' + str(i))
+            lh.set_person(p)
+            lh.run()
+    
+    def run(self, gen=50, n=10):
+        for i in range(gen):
+            print(i)
+            self.run_generation()
+            self.valence_means.append(self.get_ave_valence())
+            self.breed(n=n)
+        
+    
