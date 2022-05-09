@@ -18,7 +18,6 @@ class Simplest():
         population.set_population(pop_size, random_seed=random_seed,
                                   n=n, x_max=x_max)
         population.set_life_history(lh)
-        population.run()
         population.run(gen=gen, p_survive=p_survive)
         return population
     

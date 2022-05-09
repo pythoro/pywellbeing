@@ -21,7 +21,7 @@ class Context():
     def setup(self, random_seed=None):
         p = self._params
         x_half = np.linspace(p['x_max']/p['n'], p['x_max'], p['n'])
-        nom = genpareto.pdf(x_half, c=p['c'], scale=p['scale'])
+        nom = 1 / x_half  # Make expected value 1 for all points.
         xs = np.linspace(-p['x_max'], p['x_max'], p['n'] * 2)
         weights = np.concatenate((np.flip(nom), nom))
         rs = np.random.default_rng(random_seed)
@@ -51,7 +51,7 @@ class Context():
 
 class Person():
     def __init__(self, n, x_max, alpha=0.0,
-                 f_att=5, f_eff=10, f_att2=0.01, f_eff2=0.01, a_decay=0.999):
+                 f_att=5, f_eff=10, f_att2=0.1, f_eff2=0.1, a_decay=0.999):
         self.history = {'ind': [], 'x': [], 'valence': [], 'attend': []}
         self._params = {'n': n,
                         'x_max': x_max,
@@ -213,30 +213,40 @@ class Life_History():
 class Population():
     """ Put lots of people through life histories and generations """
     def __init__(self):
-        self.valence_means = []
-        self.wbs_means = []
+        self.history = {'valence': [],
+                        'effort': [],
+                        'agency': [],
+                        'obj_wb': [],
+                        'subj_wb': [],
+                        }
     
     def set_life_history(self, lh):
         self.lh = lh
     
-    def set_population(self, n, random_seed=None, *args, **kwargs):
+    def set_population(self, pop_size, random_seed=None, *args, **kwargs):
         pop = []
-        for i in range(n):
+        for i in range(pop_size):
             person = Person(*args, **kwargs)
             person.setup(random_seed=random_seed)
             pop.append(person)
         self.pop = pop
     
-    def _split(self, n_fail):
+    def _split(self, n_fail, n_top=5):
         wbs = [p.objective_wellbeing() for p in self.pop]
-        print(np.mean(wbs))
-        self.wbs_means.append(np.mean(wbs))
         ind_sorted = np.argsort(wbs)
-        top = ind_sorted[-1]
+        top = ind_sorted[-n_top:]
         bottom = ind_sorted[:n_fail]
-        breeders = ind_sorted[n_fail:-1]
+        breeders = ind_sorted[n_fail:-n_top]
         pop = np.array(self.pop)
         return pop[top], pop[bottom].tolist(), pop[breeders].tolist()
+    
+    def get_ave_obj_wb(self):
+        wbs = [p.objective_wellbeing() for p in self.pop]
+        return np.mean(wbs)
+
+    def get_ave_subj_wb(self):
+        wbs = [p.subjective_wellbeing()[1] for p in self.pop]
+        return np.mean(wbs)
     
     def get_ave_valence(self):
         return np.mean(np.array([p.valence for p in self.pop]), axis=0)
@@ -248,12 +258,13 @@ class Population():
         return np.mean(np.array([p.get_agency() for p in self.pop]), axis=0)
     
     def breed(self, p_survive=0.5):
-        n_fail = int(np.floor((1 - p) * len(self.pop)))
+        n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
         top, bottom, breeders = self._split(n_fail=n_fail)
         new = []
         for i in range(len(self.pop)):
+            mate = other = np.random.choice(top, size=1)[0]
             other = np.random.choice(breeders, size=1)[0]
-            new.append(top.breed(other))
+            new.append(mate.breed(other))
         self.pop = new
     
     def run_generation(self):
@@ -263,11 +274,21 @@ class Population():
             lh.set_person(p)
             lh.run()
     
+    def record_hist(self):
+        hist = self.history
+        hist['valence'].append(self.get_ave_valence())
+        hist['effort'].append(self.get_ave_effort())
+        hist['agency'].append(self.get_ave_agency())
+        hist['obj_wb'].append(self.get_ave_obj_wb())
+        hist['subj_wb'].append(self.get_ave_subj_wb())
+    
     def run(self, gen=50, p_survive=0.5):
         for i in range(gen):
-            print(i)
             self.run_generation()
-            self.valence_means.append(self.get_ave_valence())
+            self.record_hist()
+            print(len(self.history['valence']),
+                  self.get_ave_obj_wb(),
+                  self.get_ave_subj_wb())
             self.breed(p_survive=p_survive)
         
     
