@@ -31,18 +31,14 @@ class Context():
         self.inds = np.arange(p['n'] * 2)
         self.ps = ps / sum(ps)
 
-    def sample(self, size=1, agency=None):
+    def sample(self, agency=None):
         if agency is None:
-            ps = self.ps
+            return self.ps
         else:
             if len(agency) != self._params['n'] * 2:
                 raise ValueError('mod is wrong size')
             else:
-                ps = self.ps * agency
-                ps = ps / sum(ps)
-        ind = np.random.choice(a=self.inds, size=size, p=ps)
-        x = self.xs[ind]
-        return ind, x
+                return self.ps * agency
     
     def expected_value(self):
         return np.mean(self.xs * self.ps)
@@ -52,7 +48,7 @@ class Context():
 class Person():
     def __init__(self, n, x_max, alpha=0.0,
                  f_att=5, f_eff=10, f_att2=0.1, f_eff2=0.1, a_decay=0.999):
-        self.history = {'ind': [], 'x': [], 'valence': [], 'attend': []}
+        self.history = {'ps': [], 'valence': [], 'attend': []}
         self._params = {'n': n,
                         'x_max': x_max,
                         'alpha': alpha,
@@ -105,67 +101,69 @@ class Person():
         attend = p_will_attend >= np.random.rand()
         return attend
 
-    def mod_attention(self, ind, valence):
+    def mod_attention(self, ps, valence):
         att = self.attention
-        current = att[ind]
-        att[ind] = current + abs(valence) * self._params['f_att2']
+        att = att + ps * abs(self.valence) * self._params['f_att2']
     
     def decay_attention(self):
         """ Decay toward uniform attention """
         self.attention = self.attention * self._params['a_decay'] 
 
-    def mod_effort(self, ind, valence):
-        current = self.effort[ind]
-        self.effort[ind] = current + valence * self._params['f_eff2']
+    def mod_effort(self, ps, valence):
+        eff = self.effort
+        self.effort = eff + ps * valence * self._params['f_eff2']
     
     def get_agency(self):
         f = self._params['f_eff']
-        return logistic.cdf(self.effort / f)**2 / 0.5**2 + 1/f
+        s = np.max(np.abs(self.effort))
+        if s == 0:
+            adj = self.effort
+        else:
+            adj = self.effort / s
+        return 5.0**adj
     
     def decay_effort(self):
         """ Decay toward uniform attention """
         self.effort = self.effort * self._params['a_decay']
     
-    def store_history(self, ind, x, valence, attend):
-        self.history['ind'].append(ind)
-        self.history['x'].append(x)
+    def store_history(self, ps, valence, attend):
+        self.history['ps'].append(ps)
         self.history['valence'].append(valence)
         self.history['attend'].append(attend)
     
-    def learn(self, ind, x, attend=None, learn=True):
-        attend = self.determine_attend(ind) if attend is None else attend
-        valence = self.valence[ind]
+    def learn(self, ps, attend=None, learn=True):
+        attend = self.determine_attend(ps) if attend is None else attend
+        valence = self.valence
         if learn:
             if attend:
                 # self.mod_attention(ind, valence)
-                self.mod_effort(ind, valence)
+                self.mod_effort(ps, valence)
             # self.decay_attention()
             self.decay_effort()
-        self.store_history(ind, x, valence, attend)
+        self.store_history(ps, valence, attend)
 
     def subjective_wellbeing(self, i=None, n=1000):
-        end = len(self.history['ind']) - 1 if i is None else i
+        end = len(self.history['valence']) - 1 if i is None else i
         start = max(0, end - n)
         filt = np.array(self.history['attend'][start:end]).flatten()
-        vals = np.array(self.history['valence'][start:end]).flatten()
-        vals[~filt] = 0.0
+        costs_benefits = self.xs * np.array(self.history['valence'][start:end])
+        costs_benefits[~filt, :] = 0.0
         inds = np.arange(end, start, -1)
-        weights = np.power(self._params['a_decay'], inds)
-        if sum(vals<0) == 0:
-            ratio = 9999
-        else:
-            ratio = (np.sum(weights[vals>0] * vals[vals>0]) / 
-                     -np.sum(weights[vals<0] * vals[vals<0]))
-        weighted_ave = np.sum(vals * weights)  / sum(weights)
+        weights = np.power(self._params['a_decay'], inds - start)
+        totals = weights.reshape(-1, 1) * costs_benefits
+        ratio = (np.sum(totals[totals > 0]) / 
+                 -np.sum(totals[totals < 0]))
+        weighted_ave = np.sum(totals) / sum(weights)
         return ratio, weighted_ave
     
     def objective_wellbeing(self, i=None, n=1000, decay=0.999):
-        end = len(self.history['ind']) - 1 if i is None else i
+        end = len(self.history['valence']) - 1 if i is None else i
         start = max(0, end - n)
         inds = np.arange(end, start, -1)
         weights = np.power(self._params['a_decay'], inds) + 1e-2
-        xs = self.history['x'][start:end]
-        return np.sum(xs * weights) / np.sum(weights)
+        costs_benefits = self.xs * self.history['ps'][start:end]
+        totals = weights.reshape(-1, 1) * costs_benefits * 1000
+        return np.sum(totals) / np.sum(weights)
     
     def breed(self, other):
         """ Create a child """
@@ -202,8 +200,8 @@ class Life_History():
         person = self.person
         for i in range(n):
             agency = person.get_agency()
-            ind, x = context.sample(size=1, agency=agency)
-            person.learn(ind, x)
+            ps = context.sample(agency=agency)
+            person.learn(ps)
     
     def run(self):
         for d in self.contexts:
