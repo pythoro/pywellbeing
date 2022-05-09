@@ -20,22 +20,20 @@ class Context():
     
     def setup(self, random_seed=None):
         p = self._params
-        x_half = np.linspace(p['x_max']/p['n'], p['x_max'], p['n'])
-        nom = 1 / x_half  # Make expected value 1 for all points.
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'] * 2)
-        weights = np.concatenate((np.flip(nom), nom))
+        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
+        nom = norm.pdf(xs)
         rs = np.random.default_rng(random_seed)
         probs = [1 - p['prob'], p['prob']]
-        ps = rs.choice([0, 1], size=p['n'] * 2, p=probs) * weights
+        ps = rs.choice([0, 1], size=p['n'], p=probs) * nom
         self.xs = xs
-        self.inds = np.arange(p['n'] * 2)
-        self.ps = ps / sum(ps)
+        self.inds = np.arange(p['n'])
+        self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
     def sample(self, agency=None):
         if agency is None:
             return self.ps
         else:
-            if len(agency) != self._params['n'] * 2:
+            if len(agency) != self._params['n']:
                 raise ValueError('mod is wrong size')
             else:
                 return self.ps * agency
@@ -61,8 +59,8 @@ class Person():
     def set_attention(self, base=None, random_seed=None):
         p = self._params
         rs = np.random.default_rng(random_seed)
-        base = np.zeros(p['n'] * 2) if base is None else base
-        error = rs.normal(scale=1.0, size=p['n'] * 2)
+        base = np.zeros(p['n']) if base is None else base
+        error = rs.normal(scale=1.0, size=p['n'])
         attention = base + error
         return attention
     
@@ -71,8 +69,8 @@ class Person():
         random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
         random_seed += 10
         rs = np.random.default_rng(random_seed)
-        base = np.zeros(p['n'] * 2) if base is None else base
-        error = rs.normal(scale=1.0, size=p['n'] * 2)
+        base = np.zeros(p['n']) if base is None else base
+        error = rs.normal(scale=1.0, size=p['n'])
         bias = xs * p['alpha']
         valence = base + error + bias
         # Ensure valence can't grow indefinately...
@@ -81,15 +79,15 @@ class Person():
     
     def setup(self, attention=None, valence=None, random_seed=None):
         p = self._params
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'] * 2)
+        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
         self.xs = xs
-        self.base_attention = np.zeros(p['n'] * 2) if attention is None else attention
+        self.base_attention = np.zeros(p['n']) if attention is None else attention
         self.attention = self.set_attention(base=attention,
                                             random_seed=random_seed)
         self.valence = self.set_valence(xs,
                                         base=valence,
                                         random_seed=random_seed)
-        self.effort = np.zeros(p['n'] * 2)
+        self.effort = np.zeros(p['n'])
     
     def determine_attend(self, ind):
         """ This needs checking """
@@ -167,7 +165,7 @@ class Person():
     
     def breed(self, other):
         """ Create a child """
-        n = self._params['n'] * 2
+        n = self._params['n']
         from_other = np.random.choice([False, True], size=n)
         attention = self.base_attention
         attention[from_other] = other.base_attention[from_other]
