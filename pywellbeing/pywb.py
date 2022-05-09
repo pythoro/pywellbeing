@@ -232,9 +232,10 @@ class Population():
         ind_sorted = np.argsort(wbs)
         top = ind_sorted[-n_top:]
         bottom = ind_sorted[:n_fail]
-        breeders = ind_sorted[n_fail:-n_top]
+        breeders = ind_sorted[n_fail + n_top:-n_top]
         pop = np.array(self.pop)
-        return pop[top], pop[bottom].tolist(), pop[breeders].tolist()
+        breeders_lst = pop[breeders].tolist() + pop[top].tolist()  # Elitist selection
+        return pop[top].tolist(), pop[bottom].tolist(), breeders_lst
     
     def get_ave_obj_wb(self):
         wbs = [p.objective_wellbeing() for p in self.pop]
