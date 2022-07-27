@@ -9,6 +9,10 @@ import numpy as np
 from scipy.stats import genpareto, norm, logistic
 
 
+def get_xs(n, x_max):
+    return np.linspace(-x_max, x_max, n)
+
+
 class Context():
     """ Generates events with some effect with some likelihood """
     def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0):
@@ -20,7 +24,7 @@ class Context():
     
     def setup(self, random_seed=None):
         p = self._params
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
+        xs = get_xs(p['x_max'], p['n'])
         nom = norm.pdf(xs)
         rs = np.random.default_rng(random_seed)
         probs = [1 - p['prob'], p['prob']]
@@ -29,19 +33,132 @@ class Context():
         self.inds = np.arange(p['n'])
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
-    def sample(self, agency=None):
-        if agency is None:
-            return self.ps
-        else:
-            if len(agency) != self._params['n']:
-                raise ValueError('mod is wrong size')
-            else:
-                return self.ps * agency
+    def sample(self):
+        return self.ps
     
     def expected_value(self):
         return np.mean(self.xs * self.ps)
 
 
+class Motivation():
+    UNIQUE_SEED = 37
+    
+    def __init__(self, n, x_max, random_seed=None, init=None):
+        self.setup(n, random_seed, init=init)
+        
+    def setup(self, n, x_max, random_seed=None, init=None):
+        if init is None:
+            random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
+            random_seed += self.UNIQUE_SEED
+            rs = np.random.default_rng(random_seed)
+            base = rs.normal(scale=1.0, size=p['n'])
+            self._base = base
+            self._learned_vals = np.zeros_like(base)
+        else:
+            self._base = init.copy
+            self._learned_vals = np.zeros_like(base)
+        self.xs = xs = get_xs(x_max, n)
+    
+    def process(self, cue_dist):
+        raise NotImplementedError
+    
+    def get_behaviour_tendency(self):
+        raise NotImplementedError
+    
+    def get_cue_dist_modifier(self):
+        raise np.zeros_like(self.xs)
+
+    def get_inherited(self):
+        return self._base
+    
+
+class Instincts(Motivation):
+    def process(self, cue_dist):
+        # There's no function of cues or learning
+        pass
+    
+    def get_behaviour_tendency(self):
+        return self._base
+
+    
+class Reinforcement_Learning(Motivation):
+    def __init__(self, *args, rate=0.1, **kwargs):
+        self._rate = rate
+        super().__init__(*args, **kwargs)
+    
+    def get_behaviour_likelihood(self):
+        return logistic.cdf(self._learned_vals)
+    
+    def learn(self, cue_dist, behaviour_dist):
+        actual = self.xs
+        predicted = self._learned_vals
+        prediction_error = actual - predicted
+        weighted_error = prediction_error * cue_dist * behaviour_dist
+        self._learned_vals += weighted_error * self._rate
+
+    def get_behaviour_tendency(self):
+        raise self._likelihood
+
+    def process(self, cue_dist, behaviour_dist):
+        likelihood = self.get_behaviour_likelihood()
+        self.learn(cue_dist, behaviour_dist)
+        self._likelihood = likelihood
+    
+
+class Model_Based_Learning_Niche(Motivation):
+    """ Niche construction """
+    
+    def __init__(self, *args, rate=0.1, decay=0.95, **kwargs):
+        self._rate = rate
+        self._decay = decay
+        super().__init__(*args, **kwargs)
+
+    def get_effort_modifier(self):
+        effort = self._learned_vals
+        s = np.max(np.abs(effort))
+        if s == 0:
+            adj = self.effort
+        else:
+            adj = self.effort / s
+        return 5.0**adj
+    
+    def decay_effort(self):
+        self._learned_vals *= self._decay
+            
+    def set_behaviour(self, behaviour):
+        self._behaviour = behaviour
+    
+    def learn(self, cue_dist, behaviour_dist):
+        actual = self.xs
+        predicted = self._learned_vals
+        prediction_error = actual - predicted
+        weighted_error = prediction_error * cue_dist * behaviour_dist
+        self._learned_vals += weighted_error * self._rate
+    
+    def process(self, cue_dist, behaviour_dist):
+        self.learn(cue_dist)
+        self.decay_effort()
+
+    def get_behaviour_tendency(self):
+        """ Don't modify behavioural responses """
+        return np.ones_like(self.xs)
+    
+    def get_cue_dist_modifier(self):
+        raise self.get_effort_modifier()
+
+
+class Model_Based_Learning_Response(Motivation):
+    """ Learned responses """
+    def get_effort_modifier(self):
+        return logistic.cdf(self._learned_vals)
+    
+    def get_behaviour_tendency(self):
+        """ Don't modify behavioural responses """
+        return self.get_effort_modifier()
+    
+    def get_cue_dist_modifier(self):
+        raise np.ones_like(self.xs)
+        
 
 class Person():
     def __init__(self, n, x_max, alpha=0.0,
@@ -79,7 +196,7 @@ class Person():
     
     def setup(self, attention=None, valence=None, random_seed=None):
         p = self._params
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
+        xs = get_xs(p['x_max'], p['n'])
         self.xs = xs
         self.base_attention = np.zeros(p['n']) if attention is None else attention
         self.attention = self.set_attention(base=attention,
