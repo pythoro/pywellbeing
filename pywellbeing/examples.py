@@ -8,12 +8,12 @@ Created on Sun May  8 19:58:32 2022
 from . import pywb
 
 class Simplest():
-    def run(self, pop_size=50, n=20, x_max=9, random_seed=0, j=10000,
-            gen=50, p_survive=0.6):
+    def run(self, pop_size=200, n=80, x_max=3, random_seed=0, j=100,
+            gen=100, p_survive=0.6):
         context = pywb.Context(n=n, x_max=x_max)
         context.setup(random_seed + 1000)
         lh = pywb.Life_History()
-        lh.add_context(context, 10000)
+        lh.add_context(context, j)
         population = pywb.Population()
         population.set_population(pop_size, random_seed=random_seed,
                                   n=n, x_max=x_max)
