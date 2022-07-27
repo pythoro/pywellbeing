@@ -45,7 +45,7 @@ class Context():
 
 class Person():
     def __init__(self, n, x_max, alpha=0.0,
-                 f_att=5, f_eff=10, f_att2=0.1, f_eff2=0.1, a_decay=0.999):
+                 f_att=5, f_eff=10, f_att2=0.1, f_eff2=0.1, a_decay=0.9999):
         self.history = {'ps': [], 'valence': [], 'attend': []}
         self._params = {'n': n,
                         'x_max': x_max,
@@ -109,7 +109,9 @@ class Person():
 
     def mod_effort(self, ps, valence):
         eff = self.effort
-        self.effort = eff + ps * valence * self._params['f_eff2']
+        adj = ps * 1/ps  # Introduce 'hedonic adaptation'
+        # Hedonic adaptation dramatically increases biological success!
+        self.effort = eff + adj * valence * self._params['f_eff2']
     
     def get_agency(self):
         f = self._params['f_eff']
