@@ -289,6 +289,8 @@ class Person():
         for motivator in self.motivators:
             behaviour_dist_list.append(motivator.get_behaviour_tendency())
             cue_dist *= motivator.get_cue_dist_modifier()
+        # TODO: ignore first motivator -it's prediction error.
+        # TODO: Use dict for motivators
         weighted_error = self._predictor.get_weighted_error()
         behaviour_dist = np.mean(behaviour_dist_list, axis=0)
         for motivator in self.motivators:
@@ -304,10 +306,11 @@ class Person():
         weights = np.power(self._a_decay, inds - start)
         totals = weights.reshape(-1, 1) * costs_benefits
         sums = np.sum(totals, axis=0) / np.sum(weights)
-        pos = np.sum(sums[neg_xs])
-        neg = np.sum(sums[~neg_xs])
+        neg = np.sum(sums[neg_xs])
+        pos = np.sum(sums[~neg_xs])
         net = np.sum(sums)
-        return pos, neg, net
+        ratio = pos / (pos - neg)
+        return neg, pos, net, ratio
     
     def objective_wellbeing(self, i=None, n=1000, decay=0.999):
         end = len(self.history['cue_dist']) - 1 if i is None else i
@@ -401,8 +404,8 @@ class Population():
         return np.mean(wbs)
 
     def get_ave_subj_wb(self):
-        wbs = [p.subjective_wellbeing()[2] for p in self.pop]
-        return np.mean(wbs)
+        wbs = [p.subjective_wellbeing() for p in self.pop]
+        return np.mean(wbs, axis=0)
     
     def get_ave_valence(self):
         return np.mean(np.array([p.valence for p in self.pop]), axis=0)
@@ -451,8 +454,8 @@ class Population():
             self.run_generation()
             self.record_hist()
             print(len(self.history['valence']),
-                  self.get_ave_obj_wb(),
-                  self.get_ave_subj_wb())
+                  self.history['obj_wb'][-1],
+                  self.history['subj_wb'][-1])
             self.breed(p_survive=p_survive)
         self.run_generation()
         
