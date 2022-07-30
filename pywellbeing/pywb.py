@@ -34,7 +34,7 @@ class Context():
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
     def sample(self):
-        return self.ps
+        return self.ps.copy()
     
     def expected_value(self):
         return np.mean(self.xs * self.ps)
@@ -43,6 +43,8 @@ class Context():
 class Motivator():
     UNIQUE_SEED_MODIFIER = 37
     START_ZEROED = False
+    RANGE = 1.5
+    SD = 0.5
     
     def __init__(self, n, x_max, random_seed=None, init=None):
         self._history = {'vals': [],
@@ -58,7 +60,7 @@ class Motivator():
             random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
             random_seed += self.UNIQUE_SEED_MODIFIER
             rs = np.random.default_rng(random_seed)
-            base = rs.normal(scale=1.0, size=n)
+            base = rs.normal(scale=self.SD, size=n)
             self._base = base
             self._learned_vals = np.zeros_like(base)
         else:
@@ -87,7 +89,7 @@ class Motivator():
         raise NotImplementedError
     
     def get_cue_dist_modifier(self):
-        return np.ones_like(self.xs)
+        return np.zeros_like(self.xs)
 
     def breed(self, other):
         n = len(self.xs)
@@ -95,8 +97,9 @@ class Motivator():
         from_other = np.random.choice([False, True], size=n)
         inherited = self._base.copy()
         inherited[from_other] = other._base[from_other]
+        inherited = np.clip(inherited, -self.RANGE, self.RANGE)
         rs = np.random.default_rng()
-        error = rs.normal(scale=0.5, size=n)
+        error = rs.normal(scale=self.SD, size=n)
         init = inherited + error
         new_motivator = self.__class__(n=n, x_max=x_max, init=init)
         return new_motivator
@@ -109,20 +112,17 @@ class Instincts(Motivator):
         # There's no function of cues or learning
         pass
     
-    def get_behaviour_likelihood(self):
-        return logistic.cdf(self._base)
-    
     def get_behaviour_tendency(self):
-        likelihood = self.get_behaviour_likelihood()
-        # print('insticts', likelihood)
-        return likelihood
+        return self._base
 
 
 class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
+    RANGE = 3.0
     
-    def __init__(self, *args, rate=0.1, **kwargs):
+    def __init__(self, *args, rate=0.1, decay=0.99, **kwargs):
         self._rate = rate
+        self._decay = decay
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
@@ -135,6 +135,7 @@ class Prediction_Error(Motivator):
         self._prediction_error = prediction_error
         self._weighted_error = weighted_error
         self._learned_vals += weighted_error * self._rate
+        self._learned_vals *= self._decay
         
     def get_prediction_error(self):
         # print('pred', self._prediction_error)
@@ -144,32 +145,27 @@ class Prediction_Error(Motivator):
         return self._weighted_error
     
     def get_behaviour_tendency(self):
-        return np.ones_like(self._base)
+        return np.zeros_like(self._base)
 
 
 class Reinforcement_Learning(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.1, **kwargs):
+    def __init__(self, *args, rate=0.1, decay=0.95, **kwargs):
         self._rate = rate
+        self._decay = decay
         super().__init__(*args, **kwargs)
-        self._likelihood = np.zeros_like(self._learned_vals)
-    
-    def get_behaviour_likelihood(self):
-        return logistic.cdf(self._learned_vals)
     
     def learn(self, weighted_error):
         self._learned_vals += weighted_error * self._rate
 
     def get_behaviour_tendency(self):
-        # print('reinforcement', self._likelihood)
-        return self._likelihood
+        return self._learned_vals
 
     def process(self, cue_dist, behaviour_dist, weighted_error):
-        likelihood = self.get_behaviour_likelihood()
         self.learn(weighted_error)
-        self._likelihood = likelihood
+        self._learned_vals *= self._decay
     
 
 class Model_Based_Learning_Niche(Motivator):
@@ -183,15 +179,6 @@ class Model_Based_Learning_Niche(Motivator):
         self._decay = decay
         super().__init__(*args, **kwargs)
 
-    def get_effort_modifier(self):
-        effort = self._learned_vals
-        s = np.max(np.abs(effort))
-        if s < 1:
-            adj = effort
-        else:
-            adj = effort / s
-        return 5.0**adj
-    
     def decay_effort(self):
         self._learned_vals *= self._decay
             
@@ -207,11 +194,10 @@ class Model_Based_Learning_Niche(Motivator):
 
     def get_behaviour_tendency(self):
         """ Don't modify behavioural responses """
-        return np.ones_like(self.xs)
+        return np.zeros_like(self.xs)
     
     def get_cue_dist_modifier(self):
-        modifier = self.get_effort_modifier()
-        return modifier
+        return self._learned_vals
         
 
 class Model_Based_Learning_Response(Model_Based_Learning_Niche):
@@ -220,16 +206,14 @@ class Model_Based_Learning_Response(Model_Based_Learning_Niche):
     
     """ Learned responses """
     def get_effort_modifier(self):
-        return logistic.cdf(self._learned_vals)
+        return self._learned_vals
     
     def get_behaviour_tendency(self):
         """ Modify behavioural responses """
-        modifier = self.get_effort_modifier()
-        # print('niche', modifier)
-        return modifier
+        return self._learned_vals
     
     def get_cue_dist_modifier(self):
-        return np.ones_like(self.xs)
+        return np.zeros_like(self.xs)
         
 
 class Person():
@@ -281,18 +265,30 @@ class Person():
     def store_history(self, cue_dist, behaviour_dist, weighted_error):
         self.history['cue_dist'].append(cue_dist)
         self.history['behaviour_dist'].append(behaviour_dist)
-        self.history['weighted_error'].append(behaviour_dist)
+        self.history['weighted_error'].append(weighted_error) # THIS WAS WRONG! behaviour_dist
+    
+    def calc_cue_mod(self, modifier):
+        s = np.max(np.abs(modifier))
+        if s < 1:
+            adj = modifier
+        else:
+            adj = modifier / s
+        return 5.0**adj 
+    
+    def calc_cue_dist(self, cue_dist, modifier):
+        mod = self.calc_cue_mod(modifier)
+        return mod * cue_dist
     
     def process(self, cue_dist):
-        cue_dist = cue_dist.copy()
-        behaviour_dist_list = []
+        cue_dist_modifier_xs = np.ones_like(cue_dist)
+        behaviour_dist_xs = np.ones_like(cue_dist)
         for motivator in self.motivators:
-            behaviour_dist_list.append(motivator.get_behaviour_tendency())
-            cue_dist *= motivator.get_cue_dist_modifier()
-        # TODO: ignore first motivator -it's prediction error.
+            behaviour_dist_xs += motivator.get_behaviour_tendency()
+            cue_dist_modifier_xs += motivator.get_cue_dist_modifier()
         # TODO: Use dict for motivators
         weighted_error = self._predictor.get_weighted_error()
-        behaviour_dist = np.mean(behaviour_dist_list, axis=0)
+        behaviour_dist = logistic.cdf(behaviour_dist_xs)
+        cue_dist = self.calc_cue_dist(cue_dist, cue_dist_modifier_xs)
         for motivator in self.motivators:
             motivator.process(cue_dist, behaviour_dist, weighted_error)
         self.store_history(cue_dist, behaviour_dist, weighted_error)
@@ -301,7 +297,7 @@ class Person():
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         neg_xs = self.xs < 0
-        costs_benefits = self.xs * np.array(self.history['weighted_error'][start:end])
+        costs_benefits = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
         weights = np.power(self._a_decay, inds - start)
         totals = weights.reshape(-1, 1) * costs_benefits
