@@ -126,6 +126,7 @@ class Prediction_Error(Motivator):
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
+        self._weighted_error_rate = np.zeros_like(self._base)
         
     def process(self, cue_dist, behaviour_dist, weighted_error):
         actual = self._base
@@ -134,6 +135,7 @@ class Prediction_Error(Motivator):
         weighted_error = prediction_error * cue_dist * behaviour_dist * 100
         self._prediction_error = prediction_error
         self._weighted_error = weighted_error
+        self._weighted_error_rate = weighted_error / cue_dist
         self._learned_vals += weighted_error * self._rate
         self._learned_vals *= self._decay
         
@@ -144,11 +146,14 @@ class Prediction_Error(Motivator):
     def get_weighted_error(self):
         return self._weighted_error
     
+    def get_weighted_error_rate(self):
+        return self._weighted_error_rate
+    
     def get_behaviour_tendency(self):
         return np.zeros_like(self._base)
 
 
-class Reinforcement_Learning(Motivator):
+class Routines(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
@@ -168,16 +173,19 @@ class Reinforcement_Learning(Motivator):
         self._learned_vals *= self._decay
     
 
-class Model_Based_Learning_Niche(Motivator):
+class Planned_Control(Motivator):
     UNIQUE_SEED_MODIFIER = 531
     START_ZEROED = True
     
     """ Niche construction """
     
-    def __init__(self, *args, rate=0.1, decay=0.95, **kwargs):
+    def __init__(self, *args, rate=0.1, decay=0.95, num=20, f_tot=0.2,
+                 **kwargs):
         self._rate = rate
         self._decay = decay
+        self._num = num
         super().__init__(*args, **kwargs)
+        self._tot = len(self.xs) * f_tot
 
     def decay_effort(self):
         self._learned_vals *= self._decay
@@ -185,35 +193,53 @@ class Model_Based_Learning_Niche(Motivator):
     def set_behaviour(self, behaviour):
         self._behaviour = behaviour
     
-    def learn(self, weighted_error):
-        self._learned_vals += weighted_error * self._rate
+    def cue_mod(self, modifier):
+        adj = modifier
+        return 5.0**adj 
+    
+    def _learn_unlim(self, weighted_error):
+        err = weighted_error
+        changes = np.ones_like(self.xs) * self._rate
+        changes = np.copysign(changes, err)
+        self._learned_vals += changes
+    
+    def _learn_lim(self, cue_dist, weighted_error):
+        """ TODO: Cap effort somehow """
+        err = weighted_error
+        effort = self._learned_vals
+        d_effort = (self.cue_mod(effort + self._rate) - self.cue_mod(effort)) * cue_dist
+        inds = np.arange(0, len(self.xs), 1)
+        A = np.random.choice(inds, size=self._num)
+        B = np.random.choice(inds, size=self._num)
+        diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
+        direction = np.ones_like(A)
+        direction[diff < 0] = -1
+        changes = np.zeros_like(self.xs)
+        changes[A] = direction * self._rate
+        changes[B] = -direction * self._rate
+        self._learned_vals += changes
+    
+    def learn(self, cue_dist, weighted_error):
+        if np.sum(np.abs(self._learned_vals)) >= self._tot:
+            return self._learn_lim(cue_dist, weighted_error)
+        else:
+            return self._learn_unlim(weighted_error)
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
-        self.learn(weighted_error)
+        self.learn(cue_dist, weighted_error)
         self.decay_effort()
 
     def get_behaviour_tendency(self):
         """ Don't modify behavioural responses """
         return np.zeros_like(self.xs)
     
-    def get_cue_dist_modifier(self):
-        return self._learned_vals
-        
-
-class Model_Based_Learning_Response(Model_Based_Learning_Niche):
-    UNIQUE_SEED_MODIFIER = 53
-    START_ZEROED = True
+    def get_cue_dist_mod(self):
+        mod = self.cue_mod(self._learned_vals)
+        return mod
     
-    """ Learned responses """
-    def get_effort_modifier(self):
-        return self._learned_vals
-    
-    def get_behaviour_tendency(self):
-        """ Modify behavioural responses """
-        return self._learned_vals
-    
-    def get_cue_dist_modifier(self):
-        return np.zeros_like(self.xs)
+    def get_modified_cue_dist(self, cue_dist):
+        mod = self.cue_mod(self._learned_vals)
+        return mod * cue_dist
         
 
 class Person():
@@ -231,16 +257,23 @@ class Person():
             motivators = [
                 Prediction_Error(n, x_max, random_seed=random_seed),
                 Instincts(n, x_max, random_seed=random_seed),
-                Reinforcement_Learning(n, x_max, random_seed=random_seed),
-                Model_Based_Learning_Niche(n, x_max, random_seed=random_seed),
-                Model_Based_Learning_Response(n, x_max, random_seed=random_seed),
+                Routines(n, x_max, random_seed=random_seed),
+                Planned_Control(n, x_max, random_seed=random_seed),
                 ]
         self._predictor = motivators[0]
         self.motivators = motivators
+        self._random_seed = random_seed
+    
+    def reset(self):
+        self.setup(random_seed=self._random_seed)
     
     @property
     def predictor(self):
         return self.motivators[0]
+
+    @property
+    def planner(self):
+        return self.motivators[3]
 
     @property
     def valence(self):
@@ -256,7 +289,7 @@ class Person():
     
     @property
     def niche_effort(self):
-        return self.motivators[3].get_cue_dist_modifier()
+        return self.motivators[3].learned_vals
     
     @property
     def response_effort(self):
@@ -267,31 +300,17 @@ class Person():
         self.history['behaviour_dist'].append(behaviour_dist)
         self.history['weighted_error'].append(weighted_error) # THIS WAS WRONG! behaviour_dist
     
-    def calc_cue_mod(self, modifier):
-        s = np.max(np.abs(modifier))
-        if s < 1:
-            adj = modifier
-        else:
-            adj = modifier / s
-        return 5.0**adj 
-    
-    def calc_cue_dist(self, cue_dist, modifier):
-        mod = self.calc_cue_mod(modifier)
-        return mod * cue_dist
-    
     def process(self, cue_dist):
-        cue_dist_modifier_xs = np.ones_like(cue_dist)
         behaviour_dist_xs = np.ones_like(cue_dist)
         for motivator in self.motivators:
             behaviour_dist_xs += motivator.get_behaviour_tendency()
-            cue_dist_modifier_xs += motivator.get_cue_dist_modifier()
         # TODO: Use dict for motivators
         weighted_error = self._predictor.get_weighted_error()
         behaviour_dist = logistic.cdf(behaviour_dist_xs)
-        cue_dist = self.calc_cue_dist(cue_dist, cue_dist_modifier_xs)
+        mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
         for motivator in self.motivators:
-            motivator.process(cue_dist, behaviour_dist, weighted_error)
-        self.store_history(cue_dist, behaviour_dist, weighted_error)
+            motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
+        self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
 
     def subjective_wellbeing(self, i=None, n=1000):
         end = len(self.history['cue_dist']) - 1 if i is None else i
@@ -412,9 +431,6 @@ class Population():
     def get_ave_niche_effort(self):
         return np.mean(np.array([p.niche_effort for p in self.pop]), axis=0)
     
-    def get_ave_response_effort(self):
-        return np.mean(np.array([p.response_effort for p in self.pop]), axis=0)
-    
     def get_ave_reinforcement(self):
         return np.mean(np.array([p.reinforcement for p in self.pop]), axis=0)
     
@@ -440,7 +456,6 @@ class Population():
         hist['valence'].append(self.get_ave_valence())
         hist['instincts'].append(self.get_ave_instincts())
         hist['niche_effort'].append(self.get_ave_niche_effort())
-        hist['response_effort'].append(self.get_ave_response_effort())
         hist['reinforcement'].append(self.get_ave_reinforcement())
         hist['obj_wb'].append(self.get_ave_obj_wb())
         hist['subj_wb'].append(self.get_ave_subj_wb())

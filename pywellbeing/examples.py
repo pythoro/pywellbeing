@@ -9,7 +9,7 @@ from . import pywb
 
 class Simplest():
     def run(self, pop_size=200, n=80, x_max=3, random_seed=0, j=200,
-            gen=20, p_survive=0.6):
+            gen=200, p_survive=0.6):
         context = pywb.Context(n=n, x_max=x_max)
         context.setup(random_seed + 1000)
         lh = pywb.Life_History()
