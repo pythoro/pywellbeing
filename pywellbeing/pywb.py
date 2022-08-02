@@ -106,11 +106,7 @@ class Motivator():
         return new_motivator
     
     def decay_vals(self, cue_dist):
-        # This seems to be not right
-        cue_dist_norm = cue_dist / np.max(cue_dist)
-        norm_period = 1 / cue_dist_norm
-        decay = self._decay**norm_period
-        self._learned_vals *= decay
+        self._learned_vals *= self._decay
         
     
 class Instincts(Motivator):
