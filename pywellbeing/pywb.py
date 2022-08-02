@@ -137,7 +137,14 @@ class Prediction_Error(Motivator):
         self._weighted_error = weighted_error
         self._weighted_error_rate = weighted_error / cue_dist
         self._learned_vals += weighted_error * self._rate
-        self._learned_vals *= self._decay
+        self.decay(cue_dist)
+        
+    def decay(self, cue_dist):
+        period = 1 / cue_dist
+        period /= np.min(period) / 2
+        factor = np.log(period)
+        decay = 1 - (1 - self._decay) * factor
+        self._learned_vals *= decay
         
     def get_prediction_error(self):
         # print('pred', self._prediction_error)
