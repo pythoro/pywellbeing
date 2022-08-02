@@ -46,7 +46,8 @@ class Motivator():
     RANGE = 1.5
     SD = 0.5
     
-    def __init__(self, n, x_max, random_seed=None, init=None):
+    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.96):
+        self._decay = decay
         self._history = {'vals': [],
                          'behaviour_tendency': [],
                          'cue_dist_modifier': []}
@@ -103,6 +104,13 @@ class Motivator():
         init = inherited + error
         new_motivator = self.__class__(n=n, x_max=x_max, init=init)
         return new_motivator
+    
+    def decay_vals(self, cue_dist):
+        # This seems to be not right
+        cue_dist_norm = cue_dist / np.max(cue_dist)
+        norm_period = 1 / cue_dist_norm
+        decay = self._decay**norm_period
+        self._learned_vals *= decay
         
     
 class Instincts(Motivator):
@@ -120,9 +128,8 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.1, decay=0.99, **kwargs):
+    def __init__(self, *args, rate=0.1, **kwargs):
         self._rate = rate
-        self._decay = decay
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
@@ -137,14 +144,7 @@ class Prediction_Error(Motivator):
         self._weighted_error = weighted_error
         self._weighted_error_rate = weighted_error / cue_dist
         self._learned_vals += weighted_error * self._rate
-        self.decay(cue_dist)
-        
-    def decay(self, cue_dist):
-        period = 1 / cue_dist
-        period /= np.min(period) / 2
-        factor = np.log(period)
-        decay = 1 - (1 - self._decay) * factor
-        self._learned_vals *= decay
+        self.decay_vals(cue_dist)
         
     def get_prediction_error(self):
         # print('pred', self._prediction_error)
@@ -164,9 +164,8 @@ class Routines(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.1, decay=0.95, **kwargs):
+    def __init__(self, *args, rate=0.1, **kwargs):
         self._rate = rate
-        self._decay = decay
         super().__init__(*args, **kwargs)
     
     def learn(self, weighted_error):
@@ -177,7 +176,7 @@ class Routines(Motivator):
 
     def process(self, cue_dist, behaviour_dist, weighted_error):
         self.learn(weighted_error)
-        self._learned_vals *= self._decay
+        self.decay_vals(cue_dist)
     
 
 class Planned_Control(Motivator):
@@ -186,17 +185,13 @@ class Planned_Control(Motivator):
     
     """ Niche construction """
     
-    def __init__(self, *args, rate=0.1, decay=0.95, num=20, f_tot=0.2,
+    def __init__(self, *args, rate=0.1, num=20, f_tot=0.2,
                  **kwargs):
         self._rate = rate
-        self._decay = decay
         self._num = num
         super().__init__(*args, **kwargs)
         self._tot = len(self.xs) * f_tot
 
-    def decay_effort(self):
-        self._learned_vals *= self._decay
-            
     def set_behaviour(self, behaviour):
         self._behaviour = behaviour
     
@@ -234,7 +229,7 @@ class Planned_Control(Motivator):
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
         self.learn(cue_dist, weighted_error)
-        self.decay_effort()
+        self.decay_vals(cue_dist)
 
     def get_behaviour_tendency(self):
         """ Don't modify behavioural responses """
@@ -250,7 +245,7 @@ class Planned_Control(Motivator):
         
 
 class Person():
-    def __init__(self, n, x_max, motivators=None, a_decay=0.99):
+    def __init__(self, n, x_max, motivators=None, a_decay=0.98):
         self.history = {'cue_dist': [], 'behaviour_dist': [],
                         'weighted_error': []}
         self.xs = get_xs(x_max, n)
@@ -261,14 +256,13 @@ class Person():
         n = len(self.xs)
         x_max = self.xs[-1]
         if motivators is None:
-            motivators = [
-                Prediction_Error(n, x_max, random_seed=random_seed),
-                Instincts(n, x_max, random_seed=random_seed),
-                Routines(n, x_max, random_seed=random_seed),
-                Planned_Control(n, x_max, random_seed=random_seed),
-                ]
-        self._predictor = motivators[0]
-        self.motivators = motivators
+            self._predictor = Prediction_Error(n, x_max, random_seed=random_seed)
+            self._instincts = Instincts(n, x_max, random_seed=random_seed)
+            self._routines = Routines(n, x_max, random_seed=random_seed)
+            self._planned_control = Planned_Control(n, x_max,
+                                                    random_seed=random_seed)
+        else:
+            self.set_motivators(motivators)
         self._random_seed = random_seed
     
     def reset(self):
@@ -276,11 +270,11 @@ class Person():
     
     @property
     def predictor(self):
-        return self.motivators[0]
+        return self._predictor
 
     @property
     def planner(self):
-        return self.motivators[3]
+        return self._planned_control
 
     @property
     def valence(self):
@@ -288,19 +282,28 @@ class Person():
 
     @property
     def instincts(self):
-        return self.motivators[1].get_behaviour_tendency()
+        return self._instincts.get_behaviour_tendency()
 
     @property
     def reinforcement(self):
-        return self.motivators[2].get_behaviour_tendency()
+        return self._routines.get_behaviour_tendency()
     
     @property
     def niche_effort(self):
-        return self.motivators[3].learned_vals
+        return self.planner.learned_vals
     
     @property
     def response_effort(self):
-        return self.motivators[4].get_behaviour_tendency()
+        return self.self.planner.get_behaviour_tendency()
+    
+    @property
+    def motivators(self):
+        return [self._predictor, self._instincts, self._routines,
+                self._planned_control]
+    
+    def set_motivators(self, motivators):
+        self._predictor, self._instincts, self._routines, \
+                self._planned_control = motivators
     
     def store_history(self, cue_dist, behaviour_dist, weighted_error):
         self.history['cue_dist'].append(cue_dist)
@@ -309,10 +312,14 @@ class Person():
     
     def process(self, cue_dist):
         behaviour_dist_xs = np.ones_like(cue_dist)
-        for motivator in self.motivators:
+        motivators = [self._instincts,
+                      self._routines,
+                      self._planned_control,
+                      ]
+        for motivator in motivators:
             behaviour_dist_xs += motivator.get_behaviour_tendency()
         # TODO: Use dict for motivators
-        weighted_error = self._predictor.get_weighted_error()
+        weighted_error = self.predictor.get_weighted_error()
         behaviour_dist = logistic.cdf(behaviour_dist_xs)
         mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
         for motivator in self.motivators:
