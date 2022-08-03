@@ -15,17 +15,18 @@ def get_xs(x_max, n):
 
 class Context():
     """ Generates events with some effect with some likelihood """
-    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0):
+    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0, loc=0.0):
         self._params = {'n': n,
                         'x_max': x_max,
                         'c': c,
                         'scale': scale,
-                        'prob': prob}
+                        'prob': prob,
+                        'loc': loc}
     
     def setup(self, random_seed=None):
         p = self._params
         xs = get_xs(p['x_max'], p['n'])
-        nom = norm.pdf(xs)
+        nom = norm.pdf(xs, loc=p['loc'])
         rs = np.random.default_rng(random_seed)
         probs = [1 - p['prob'], p['prob']]
         ps = rs.choice([0, 1], size=p['n'], p=probs) * nom
@@ -46,7 +47,7 @@ class Motivator():
     RANGE = 1.5
     SD = 0.5
     
-    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.96):
+    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.98):
         self._decay = decay
         self._history = {'vals': [],
                          'behaviour_tendency': [],
@@ -68,6 +69,9 @@ class Motivator():
             self._base = init.copy()
             self._learned_vals = np.zeros_like(self._base)
         self.xs = xs = get_xs(x_max, n)
+    
+    def reset(self):
+        self._learned_vals = np.zeros_like(self._base)
     
     @property
     def base(self):
@@ -124,7 +128,7 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.1, **kwargs):
+    def __init__(self, *args, rate=0.01, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
@@ -160,7 +164,7 @@ class Routines(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.1, **kwargs):
+    def __init__(self, *args, rate=0.01, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
     
@@ -181,7 +185,7 @@ class Planned_Control(Motivator):
     
     """ Niche construction """
     
-    def __init__(self, *args, rate=0.1, num=20, f_tot=0.2,
+    def __init__(self, *args, rate=0.01, num=20, f_tot=0.2,
                  **kwargs):
         self._rate = rate
         self._num = num
@@ -241,9 +245,7 @@ class Planned_Control(Motivator):
         
 
 class Person():
-    def __init__(self, n, x_max, motivators=None, a_decay=0.98):
-        self.history = {'cue_dist': [], 'behaviour_dist': [],
-                        'weighted_error': []}
+    def __init__(self, n, x_max, motivators=None, a_decay=0.97):
         self.xs = get_xs(x_max, n)
         self.setup(motivators)
         self._a_decay = a_decay
@@ -260,9 +262,14 @@ class Person():
         else:
             self.set_motivators(motivators)
         self._random_seed = random_seed
+        self.history = {'cue_dist': [], 'behaviour_dist': [],
+                        'weighted_error': []}
     
     def reset(self):
-        self.setup(random_seed=self._random_seed)
+        self.history = {'cue_dist': [], 'behaviour_dist': [],
+                        'weighted_error': []}
+        for motivator in self.motivators:
+            motivator.reset()
     
     @property
     def predictor(self):
@@ -304,7 +311,7 @@ class Person():
     def store_history(self, cue_dist, behaviour_dist, weighted_error):
         self.history['cue_dist'].append(cue_dist)
         self.history['behaviour_dist'].append(behaviour_dist)
-        self.history['weighted_error'].append(weighted_error) # THIS WAS WRONG! behaviour_dist
+        self.history['weighted_error'].append(weighted_error)
     
     def process(self, cue_dist):
         behaviour_dist_xs = np.ones_like(cue_dist)
@@ -322,7 +329,19 @@ class Person():
             motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
         self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
 
-    def subjective_wellbeing(self, i=None, n=1000):
+    def subj_wb_history(self, k=3):
+        n = len(self.history['cue_dist'])
+        indices = np.arange(2, n, 1)
+        wb = [self.subjective_wellbeing(i)[k] for i in indices]
+        return indices, np.array(wb)
+    
+    def obj_wb_history(self):
+        n = len(self.history['cue_dist'])
+        indices = np.arange(2, n, 1)
+        wb = [self.objective_wellbeing(i) for i in indices]
+        return indices, np.array(wb)
+
+    def subjective_wellbeing(self, i=None, n=5):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         neg_xs = self.xs < 0
