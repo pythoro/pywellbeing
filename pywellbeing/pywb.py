@@ -128,7 +128,7 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.01, **kwargs):
+    def __init__(self, *args, rate=0.008, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
@@ -185,7 +185,7 @@ class Planned_Control(Motivator):
     
     """ Niche construction """
     
-    def __init__(self, *args, rate=0.01, num=20, f_tot=0.2,
+    def __init__(self, *args, rate=0.01, num=20, f_tot=0.1,
                  **kwargs):
         self._rate = rate
         self._num = num
@@ -271,6 +271,12 @@ class Person():
         for motivator in self.motivators:
             motivator.reset()
     
+    def copy(self):
+        n = len(self.xs)
+        x_max = self.xs[-1]
+        return Person(n, x_max, motivators=self.motivators,
+                      a_decay=self._a_decay)
+    
     @property
     def predictor(self):
         return self._predictor
@@ -329,10 +335,10 @@ class Person():
             motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
         self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
 
-    def subj_wb_history(self, k=3):
-        n = len(self.history['cue_dist'])
-        indices = np.arange(2, n, 1)
-        wb = [self.subjective_wellbeing(i)[k] for i in indices]
+    def subj_wb_history(self, k=3, n=5, decay=None):
+        n_hist = len(self.history['cue_dist'])
+        indices = np.arange(2, n_hist, 1)
+        wb = [self.subjective_wellbeing(i=i, n=n, decay=decay)[k] for i in indices]
         return indices, np.array(wb)
     
     def obj_wb_history(self):
@@ -341,13 +347,14 @@ class Person():
         wb = [self.objective_wellbeing(i) for i in indices]
         return indices, np.array(wb)
 
-    def subjective_wellbeing(self, i=None, n=5):
+    def subjective_wellbeing(self, i=None, n=5, decay=None):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         neg_xs = self.xs < 0
         costs_benefits = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
-        weights = np.power(self._a_decay, inds - start)
+        decay = self._a_decay if decay is None else decay
+        weights = np.power(decay, inds - start)
         totals = weights.reshape(-1, 1) * costs_benefits
         sums = np.sum(totals, axis=0) / np.sum(weights)
         neg = np.sum(sums[neg_xs])
