@@ -5,7 +5,10 @@ Created on Sun May  8 19:58:32 2022
 @author: Reuben
 """
 
+import matplotlib.pyplot as plt
+
 from . import pywb
+
 
 class Simplest():
     def run(self, pop_size=200, n=80, x_max=3, random_seed=0, j=200,
@@ -16,7 +19,7 @@ class Simplest():
         lh.add_context(context, j)
         population = pywb.Population()
         population.set_population(pop_size, random_seed=random_seed,
-                                  n=n, x_max=x_max)
+                                  n=n, x_max=x_max, n_history=10)
         population.set_life_history(lh)
         population.run(gen=gen, p_survive=p_survive)
         return population
@@ -48,5 +51,4 @@ class Simplest():
         lh.add_context(normal, j)
         lh.add_context(novel, k)
         lh.run()
-        
         

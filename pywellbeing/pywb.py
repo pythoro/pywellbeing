@@ -6,6 +6,7 @@ Created on Sat May  7 13:17:45 2022
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import genpareto, norm, logistic
 
 
@@ -128,13 +129,12 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.008, **kwargs):
+    def __init__(self, *args, rate=0.1, n_events=1000, **kwargs):
         self._rate = rate
+        self._n_events = n_events
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
-        self._weighted_error_rate = np.zeros_like(self._base)
-        
     def process(self, cue_dist, behaviour_dist, weighted_error):
         actual = self._base
         predicted = self._learned_vals
@@ -152,10 +152,7 @@ class Prediction_Error(Motivator):
         
     def get_weighted_error(self):
         return self._weighted_error
-    
-    def get_weighted_error_rate(self):
-        return self._weighted_error_rate
-    
+        
     def get_behaviour_tendency(self):
         return np.zeros_like(self._base)
 
@@ -245,10 +242,12 @@ class Planned_Control(Motivator):
         
 
 class Person():
-    def __init__(self, n, x_max, motivators=None, a_decay=0.97):
+    def __init__(self, n, x_max, motivators=None, a_decay=0.97,
+                 history=False):
         self.xs = get_xs(x_max, n)
         self.setup(motivators)
         self._a_decay = a_decay
+        self._record_history = history
             
     def setup(self, motivators=None, random_seed=None):
         n = len(self.xs)
@@ -262,12 +261,26 @@ class Person():
         else:
             self.set_motivators(motivators)
         self._random_seed = random_seed
-        self.history = {'cue_dist': [], 'behaviour_dist': [],
-                        'weighted_error': []}
+        self.history = {
+            'instincts': [],
+            'reinforcement': [],
+            'niche_effort': [],
+            'cue_dist': [],
+            'behaviour_dist': [],
+            'weighted_error': [],
+            'prediction_error': []
+            }
     
     def reset(self):
-        self.history = {'cue_dist': [], 'behaviour_dist': [],
-                        'weighted_error': []}
+        self.history = {
+            'instincts': [],
+            'reinforcement': [],
+            'niche_effort': [],
+            'cue_dist': [],
+            'behaviour_dist': [],
+            'weighted_error': [],
+            'prediction_error': []
+            }
         for motivator in self.motivators:
             motivator.reset()
     
@@ -300,10 +313,22 @@ class Person():
     @property
     def niche_effort(self):
         return self.planner.learned_vals
+        
+    @property
+    def cue_dist(self):
+        return self.history['cue_dist'][-1]
+
+    @property
+    def behaviour_dist(self):
+        return self.history['behaviour_dist'][-1]
+
+    @property
+    def weighted_error(self):
+        return self.history['weighted_error'][-1]
     
     @property
-    def response_effort(self):
-        return self.self.planner.get_behaviour_tendency()
+    def prediction_error(self):
+        return self.predictor.get_prediction_error()
     
     @property
     def motivators(self):
@@ -318,6 +343,12 @@ class Person():
         self.history['cue_dist'].append(cue_dist)
         self.history['behaviour_dist'].append(behaviour_dist)
         self.history['weighted_error'].append(weighted_error)
+        if not self._record_history:
+            return
+        self.history['instincts'].append(self.instincts)
+        self.history['reinforcement'].append(self.reinforcement)
+        self.history['niche_effort'].append(self.niche_effort)
+        self.history['prediction_error'].append(self.prediction_error)
     
     def process(self, cue_dist):
         behaviour_dist_xs = np.ones_like(cue_dist)
@@ -363,7 +394,7 @@ class Person():
         ratio = pos / (pos - neg)
         return neg, pos, net, ratio
     
-    def objective_wellbeing(self, i=None, n=1000, decay=0.999):
+    def objective_wellbeing(self, i=None, n=1000, decay=1):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         inds = np.arange(end, start, -1)
@@ -424,6 +455,10 @@ class Population():
                         'niche_effort': [],
                         'response_effort': [],
                         'reinforcement': [],
+                        'cue_dist': [],
+                        'behaviour_dist': [],
+                        'weighted_error': [],
+                        'prediction_error': [],
                         'obj_wb': [],
                         'subj_wb': [],
                         }
@@ -431,10 +466,12 @@ class Population():
     def set_life_history(self, lh):
         self.lh = lh
     
-    def set_population(self, pop_size, random_seed=None, *args, **kwargs):
+    def set_population(self, pop_size, random_seed=None, 
+                       n_history=10, *args, **kwargs):
         pop = []
         for i in range(pop_size):
-            person = Person(*args, **kwargs)
+            history = True if i < n_history else False
+            person = Person(*args, history=history, **kwargs)
             seed = random_seed + 33 * i
             person.setup(random_seed=seed)
             pop.append(person)
@@ -452,23 +489,43 @@ class Population():
     
     def get_ave_obj_wb(self):
         wbs = [p.objective_wellbeing() for p in self.pop]
-        return np.mean(wbs)
+        return np.mean(wbs), np.std(wbs)
 
     def get_ave_subj_wb(self):
         wbs = [p.subjective_wellbeing() for p in self.pop]
-        return np.mean(wbs, axis=0)
+        return np.mean(wbs, axis=0), np.std(wbs, axis=0)
     
     def get_ave_valence(self):
-        return np.mean(np.array([p.valence for p in self.pop]), axis=0)
+        vals = np.array([p.valence for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_instincts(self):
-        return np.mean(np.array([p.instincts for p in self.pop]), axis=0)
+        vals = np.array([p.instincts for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_niche_effort(self):
-        return np.mean(np.array([p.niche_effort for p in self.pop]), axis=0)
+        vals = np.array([p.niche_effort for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_reinforcement(self):
-        return np.mean(np.array([p.reinforcement for p in self.pop]), axis=0)
+        vals = np.array([p.reinforcement for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_cue_dist(self):
+        vals = np.array([p.cue_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+
+    def get_ave_behaviour_dist(self):
+        vals = np.array([p.behaviour_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_weighted_error(self):
+        vals = np.array([p.weighted_error for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_prediction_error(self):
+        vals = np.array([p.prediction_error for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def breed(self, p_survive=0.5):
         n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
@@ -493,6 +550,10 @@ class Population():
         hist['instincts'].append(self.get_ave_instincts())
         hist['niche_effort'].append(self.get_ave_niche_effort())
         hist['reinforcement'].append(self.get_ave_reinforcement())
+        hist['cue_dist'].append(self.get_ave_cue_dist())
+        hist['behaviour_dist'].append(self.get_ave_behaviour_dist())
+        hist['weighted_error'].append(self.get_ave_weighted_error())
+        hist['prediction_error'].append(self.get_ave_prediction_error())
         hist['obj_wb'].append(self.get_ave_obj_wb())
         hist['subj_wb'].append(self.get_ave_subj_wb())
     
@@ -501,9 +562,33 @@ class Population():
             self.run_generation()
             self.record_hist()
             print(len(self.history['valence']),
-                  self.history['obj_wb'][-1],
-                  self.history['subj_wb'][-1])
+                  self.history['obj_wb'][-1][0],
+                  self.history['subj_wb'][-1][0])
             self.breed(p_survive=p_survive)
         self.run_generation()
         
-    
+    def plot_history(self, ax=None, var='obj_wb', label='Objective wellbeing'):
+        if ax is None:
+            fig, ax = plt.subplots()
+        inds = np.arange(0, len(self.history['valence']), 1)
+        vals = np.array(self.history[var])
+        ax.errorbar(inds,
+                    vals[:,0],
+                    yerr=vals[:,1]*1.96
+                    )
+        ax.xlabel('Generation')
+        ax.ylabel(label)
+        
+    def plot(self, var='valence', label='Valence', i=-1):
+        plt.figure()
+        self.history[var]
+        xs = self.pop[0].xs
+        plt.errorbar(xs,
+                     self.history[var][i][0],
+                     yerr=self.history[var][i][1]*1.96,
+                     fmt='o')
+        plt.xlabel('RL impact')
+        plt.ylabel(label)
+
+        
+        
