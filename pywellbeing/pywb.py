@@ -9,19 +9,24 @@ import numpy as np
 from scipy.stats import genpareto, norm, logistic
 
 
+def get_xs(x_max, n):
+    return np.linspace(-x_max, x_max, n)
+
+
 class Context():
     """ Generates events with some effect with some likelihood """
-    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0):
+    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0, loc=0.0):
         self._params = {'n': n,
                         'x_max': x_max,
                         'c': c,
                         'scale': scale,
-                        'prob': prob}
+                        'prob': prob,
+                        'loc': loc}
     
     def setup(self, random_seed=None):
         p = self._params
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
-        nom = norm.pdf(xs)
+        xs = get_xs(p['x_max'], p['n'])
+        nom = norm.pdf(xs, loc=p['loc'])
         rs = np.random.default_rng(random_seed)
         probs = [1 - p['prob'], p['prob']]
         ps = rs.choice([0, 1], size=p['n'], p=probs) * nom
@@ -29,150 +34,356 @@ class Context():
         self.inds = np.arange(p['n'])
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
-    def sample(self, agency=None):
-        if agency is None:
-            return self.ps
-        else:
-            if len(agency) != self._params['n']:
-                raise ValueError('mod is wrong size')
-            else:
-                return self.ps * agency
+    def sample(self):
+        return self.ps.copy()
     
     def expected_value(self):
         return np.mean(self.xs * self.ps)
 
 
+class Motivator():
+    UNIQUE_SEED_MODIFIER = 37
+    START_ZEROED = False
+    RANGE = 1.5
+    SD = 0.5
+    
+    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.98):
+        self._decay = decay
+        self._history = {'vals': [],
+                         'behaviour_tendency': [],
+                         'cue_dist_modifier': []}
+        self.setup(n, x_max, random_seed=random_seed, init=init)
+        
+    def setup(self, n, x_max, random_seed=None, init=None):
+        if self.START_ZEROED:
+            self._base = np.zeros(n)
+            self._learned_vals = np.zeros(n)
+        elif init is None:
+            random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
+            random_seed += self.UNIQUE_SEED_MODIFIER
+            rs = np.random.default_rng(random_seed)
+            base = rs.normal(scale=self.SD, size=n)
+            self._base = base
+            self._learned_vals = np.zeros_like(base)
+        else:
+            self._base = init.copy()
+            self._learned_vals = np.zeros_like(self._base)
+        self.xs = xs = get_xs(x_max, n)
+    
+    def reset(self):
+        self._learned_vals = np.zeros_like(self._base)
+    
+    @property
+    def base(self):
+        return self._base
+    
+    @property
+    def learned_vals(self):
+        return self._learned_vals
+    
+    def record_history(self):
+        pass
+    
+    def process(self, cue_dist, behaviour_dist, weighted_error):
+        raise NotImplementedError
+    
+    def get_behaviour_tendency(self):
+        raise NotImplementedError
+    
+    def get_weighted_error(self):
+        raise NotImplementedError
+    
+    def get_cue_dist_modifier(self):
+        return np.zeros_like(self.xs)
+
+    def breed(self, other):
+        n = len(self.xs)
+        x_max = self.xs[-3]
+        from_other = np.random.choice([False, True], size=n)
+        inherited = self._base.copy()
+        inherited[from_other] = other._base[from_other]
+        inherited = np.clip(inherited, -self.RANGE, self.RANGE)
+        rs = np.random.default_rng()
+        error = rs.normal(scale=self.SD, size=n)
+        init = inherited + error
+        new_motivator = self.__class__(n=n, x_max=x_max, init=init)
+        return new_motivator
+    
+    def decay_vals(self, cue_dist):
+        self._learned_vals *= self._decay
+        
+    
+class Instincts(Motivator):
+    UNIQUE_SEED_MODIFIER = 25
+    
+    def process(self, cue_dist, behaviour_dist, weighted_error):
+        # There's no function of cues or learning
+        pass
+    
+    def get_behaviour_tendency(self):
+        return self._base
+
+
+class Prediction_Error(Motivator):
+    UNIQUE_SEED_MODIFIER = 16
+    RANGE = 3.0
+    
+    def __init__(self, *args, rate=0.008, **kwargs):
+        self._rate = rate
+        super().__init__(*args, **kwargs)
+        self._prediction_error = np.zeros_like(self._base)
+        self._weighted_error = np.zeros_like(self._base)
+        self._weighted_error_rate = np.zeros_like(self._base)
+        
+    def process(self, cue_dist, behaviour_dist, weighted_error):
+        actual = self._base
+        predicted = self._learned_vals
+        prediction_error = actual - predicted
+        weighted_error = prediction_error * cue_dist * behaviour_dist * 100
+        self._prediction_error = prediction_error
+        self._weighted_error = weighted_error
+        self._weighted_error_rate = weighted_error / cue_dist
+        self._learned_vals += weighted_error * self._rate
+        self.decay_vals(cue_dist)
+        
+    def get_prediction_error(self):
+        # print('pred', self._prediction_error)
+        return self._prediction_error
+        
+    def get_weighted_error(self):
+        return self._weighted_error
+    
+    def get_weighted_error_rate(self):
+        return self._weighted_error_rate
+    
+    def get_behaviour_tendency(self):
+        return np.zeros_like(self._base)
+
+
+class Routines(Motivator):
+    UNIQUE_SEED_MODIFIER = 564
+    START_ZEROED = True
+    
+    def __init__(self, *args, rate=0.01, **kwargs):
+        self._rate = rate
+        super().__init__(*args, **kwargs)
+    
+    def learn(self, weighted_error):
+        self._learned_vals += weighted_error * self._rate
+
+    def get_behaviour_tendency(self):
+        return self._learned_vals
+
+    def process(self, cue_dist, behaviour_dist, weighted_error):
+        self.learn(weighted_error)
+        self.decay_vals(cue_dist)
+    
+
+class Planned_Control(Motivator):
+    UNIQUE_SEED_MODIFIER = 531
+    START_ZEROED = True
+    
+    """ Niche construction """
+    
+    def __init__(self, *args, rate=0.01, num=20, f_tot=0.1,
+                 **kwargs):
+        self._rate = rate
+        self._num = num
+        super().__init__(*args, **kwargs)
+        self._tot = len(self.xs) * f_tot
+
+    def set_behaviour(self, behaviour):
+        self._behaviour = behaviour
+    
+    def cue_mod(self, modifier):
+        adj = modifier
+        return 5.0**adj 
+    
+    def _learn_unlim(self, weighted_error):
+        err = weighted_error
+        changes = np.ones_like(self.xs) * self._rate
+        changes = np.copysign(changes, err)
+        self._learned_vals += changes
+    
+    def _learn_lim(self, cue_dist, weighted_error):
+        """ TODO: Cap effort somehow """
+        err = weighted_error
+        effort = self._learned_vals
+        d_effort = (self.cue_mod(effort + self._rate) - self.cue_mod(effort)) * cue_dist
+        inds = np.arange(0, len(self.xs), 1)
+        A = np.random.choice(inds, size=self._num)
+        B = np.random.choice(inds, size=self._num)
+        diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
+        direction = np.ones_like(A)
+        direction[diff < 0] = -1
+        changes = np.zeros_like(self.xs)
+        changes[A] = direction * self._rate
+        changes[B] = -direction * self._rate
+        self._learned_vals += changes
+    
+    def learn(self, cue_dist, weighted_error):
+        if np.sum(np.abs(self._learned_vals)) >= self._tot:
+            return self._learn_lim(cue_dist, weighted_error)
+        else:
+            return self._learn_unlim(weighted_error)
+    
+    def process(self, cue_dist, behaviour_dist, weighted_error):
+        self.learn(cue_dist, weighted_error)
+        self.decay_vals(cue_dist)
+
+    def get_behaviour_tendency(self):
+        """ Don't modify behavioural responses """
+        return np.zeros_like(self.xs)
+    
+    def get_cue_dist_mod(self):
+        mod = self.cue_mod(self._learned_vals)
+        return mod
+    
+    def get_modified_cue_dist(self, cue_dist):
+        mod = self.cue_mod(self._learned_vals)
+        return mod * cue_dist
+        
 
 class Person():
-    def __init__(self, n, x_max, alpha=0.0,
-                 f_att=5, f_eff=10, f_att2=0.1, f_eff2=0.1, a_decay=0.999):
-        self.history = {'ps': [], 'valence': [], 'attend': []}
-        self._params = {'n': n,
-                        'x_max': x_max,
-                        'alpha': alpha,
-                        'f_att': f_att,
-                        'f_att2': f_att2,
-                        'f_eff': f_eff,
-                        'f_eff2': f_eff2,
-                        'a_decay': a_decay}
-        
-    def set_attention(self, base=None, random_seed=None):
-        p = self._params
-        rs = np.random.default_rng(random_seed)
-        base = np.zeros(p['n']) if base is None else base
-        error = rs.normal(scale=1.0, size=p['n'])
-        attention = base + error
-        return attention
-    
-    def set_valence(self, xs, base=None, random_seed=None):
-        p = self._params
-        random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
-        random_seed += 10
-        rs = np.random.default_rng(random_seed)
-        base = np.zeros(p['n']) if base is None else base
-        error = rs.normal(scale=1.0, size=p['n'])
-        bias = xs * p['alpha']
-        valence = base + error + bias
-        # Ensure valence can't grow indefinately...
-        valence = np.clip(valence, -9, 9)
-        return valence
-    
-    def setup(self, attention=None, valence=None, random_seed=None):
-        p = self._params
-        xs = np.linspace(-p['x_max'], p['x_max'], p['n'])
-        self.xs = xs
-        self.base_attention = np.zeros(p['n']) if attention is None else attention
-        self.attention = self.set_attention(base=attention,
-                                            random_seed=random_seed)
-        self.valence = self.set_valence(xs,
-                                        base=valence,
-                                        random_seed=random_seed)
-        self.effort = np.zeros(p['n'])
-    
-    def determine_attend(self, ind):
-        """ This needs checking """
-        return True
-        att = self.attention
-        p = self._params
-        a = att[ind] + self.base_attention[ind]
-        p_will_attend = min(np.argsort(att)[ind] / len(att), 0.1)
-        attend = p_will_attend >= np.random.rand()
-        return attend
-
-    def mod_attention(self, ps, valence):
-        att = self.attention
-        att = att + ps * abs(self.valence) * self._params['f_att2']
-    
-    def decay_attention(self):
-        """ Decay toward uniform attention """
-        self.attention = self.attention * self._params['a_decay'] 
-
-    def mod_effort(self, ps, valence):
-        eff = self.effort
-        self.effort = eff + ps * valence * self._params['f_eff2']
-    
-    def get_agency(self):
-        f = self._params['f_eff']
-        s = np.max(np.abs(self.effort))
-        if s == 0:
-            adj = self.effort
+    def __init__(self, n, x_max, motivators=None, a_decay=0.97):
+        self.xs = get_xs(x_max, n)
+        self.setup(motivators)
+        self._a_decay = a_decay
+            
+    def setup(self, motivators=None, random_seed=None):
+        n = len(self.xs)
+        x_max = self.xs[-1]
+        if motivators is None:
+            self._predictor = Prediction_Error(n, x_max, random_seed=random_seed)
+            self._instincts = Instincts(n, x_max, random_seed=random_seed)
+            self._routines = Routines(n, x_max, random_seed=random_seed)
+            self._planned_control = Planned_Control(n, x_max,
+                                                    random_seed=random_seed)
         else:
-            adj = self.effort / s
-        return 5.0**adj
+            self.set_motivators(motivators)
+        self._random_seed = random_seed
+        self.history = {'cue_dist': [], 'behaviour_dist': [],
+                        'weighted_error': []}
     
-    def decay_effort(self):
-        """ Decay toward uniform attention """
-        self.effort = self.effort * self._params['a_decay']
+    def reset(self):
+        self.history = {'cue_dist': [], 'behaviour_dist': [],
+                        'weighted_error': []}
+        for motivator in self.motivators:
+            motivator.reset()
     
-    def store_history(self, ps, valence, attend):
-        self.history['ps'].append(ps)
-        self.history['valence'].append(valence)
-        self.history['attend'].append(attend)
+    def copy(self):
+        n = len(self.xs)
+        x_max = self.xs[-1]
+        return Person(n, x_max, motivators=self.motivators,
+                      a_decay=self._a_decay)
     
-    def learn(self, ps, attend=None, learn=True):
-        attend = self.determine_attend(ps) if attend is None else attend
-        valence = self.valence
-        if learn:
-            if attend:
-                # self.mod_attention(ind, valence)
-                self.mod_effort(ps, valence)
-            # self.decay_attention()
-            self.decay_effort()
-        self.store_history(ps, valence, attend)
+    @property
+    def predictor(self):
+        return self._predictor
 
-    def subjective_wellbeing(self, i=None, n=1000):
-        end = len(self.history['valence']) - 1 if i is None else i
+    @property
+    def planner(self):
+        return self._planned_control
+
+    @property
+    def valence(self):
+        return self.predictor.base
+
+    @property
+    def instincts(self):
+        return self._instincts.get_behaviour_tendency()
+
+    @property
+    def reinforcement(self):
+        return self._routines.get_behaviour_tendency()
+    
+    @property
+    def niche_effort(self):
+        return self.planner.learned_vals
+    
+    @property
+    def response_effort(self):
+        return self.self.planner.get_behaviour_tendency()
+    
+    @property
+    def motivators(self):
+        return [self._predictor, self._instincts, self._routines,
+                self._planned_control]
+    
+    def set_motivators(self, motivators):
+        self._predictor, self._instincts, self._routines, \
+                self._planned_control = motivators
+    
+    def store_history(self, cue_dist, behaviour_dist, weighted_error):
+        self.history['cue_dist'].append(cue_dist)
+        self.history['behaviour_dist'].append(behaviour_dist)
+        self.history['weighted_error'].append(weighted_error)
+    
+    def process(self, cue_dist):
+        behaviour_dist_xs = np.ones_like(cue_dist)
+        motivators = [self._instincts,
+                      self._routines,
+                      self._planned_control,
+                      ]
+        for motivator in motivators:
+            behaviour_dist_xs += motivator.get_behaviour_tendency()
+        # TODO: Use dict for motivators
+        weighted_error = self.predictor.get_weighted_error()
+        behaviour_dist = logistic.cdf(behaviour_dist_xs)
+        mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
+        for motivator in self.motivators:
+            motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
+        self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
+
+    def subj_wb_history(self, k=3, n=5, decay=None):
+        n_hist = len(self.history['cue_dist'])
+        indices = np.arange(2, n_hist, 1)
+        wb = [self.subjective_wellbeing(i=i, n=n, decay=decay)[k] for i in indices]
+        return indices, np.array(wb)
+    
+    def obj_wb_history(self):
+        n = len(self.history['cue_dist'])
+        indices = np.arange(2, n, 1)
+        wb = [self.objective_wellbeing(i) for i in indices]
+        return indices, np.array(wb)
+
+    def subjective_wellbeing(self, i=None, n=5, decay=None):
+        end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
-        filt = np.array(self.history['attend'][start:end]).flatten()
-        costs_benefits = self.xs * np.array(self.history['valence'][start:end])
-        costs_benefits[~filt, :] = 0.0
+        neg_xs = self.xs < 0
+        costs_benefits = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
-        weights = np.power(self._params['a_decay'], inds - start)
+        decay = self._a_decay if decay is None else decay
+        weights = np.power(decay, inds - start)
         totals = weights.reshape(-1, 1) * costs_benefits
-        ratio = (np.sum(totals[totals > 0]) / 
-                 -np.sum(totals[totals < 0]))
-        weighted_ave = np.sum(totals) / sum(weights)
-        return ratio, weighted_ave
+        sums = np.sum(totals, axis=0) / np.sum(weights)
+        neg = np.sum(sums[neg_xs])
+        pos = np.sum(sums[~neg_xs])
+        net = np.sum(sums)
+        ratio = pos / (pos - neg)
+        return neg, pos, net, ratio
     
     def objective_wellbeing(self, i=None, n=1000, decay=0.999):
-        end = len(self.history['valence']) - 1 if i is None else i
+        end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         inds = np.arange(end, start, -1)
-        weights = np.power(self._params['a_decay'], inds) + 1e-2
-        costs_benefits = self.xs * self.history['ps'][start:end]
+        weights = np.power(self._a_decay, inds) + 1e-2
+        cue_dist = np.array(self.history['cue_dist'][start:end])
+        behaviour_dist = np.array(self.history['behaviour_dist'][start:end])
+        xs = self.xs.reshape(1, -1)
+        costs_benefits = xs * cue_dist * behaviour_dist
         totals = weights.reshape(-1, 1) * costs_benefits * 1000
         return np.sum(totals) / np.sum(weights)
     
     def breed(self, other):
         """ Create a child """
-        n = self._params['n']
-        from_other = np.random.choice([False, True], size=n)
-        attention = self.base_attention
-        attention[from_other] = other.base_attention[from_other]
-        valence = self.valence
-        valence[from_other] = other.valence[from_other]
-        child = Person(**self._params)
-        child.setup(attention=attention, valence=valence)
+        motivators = []
+        for m1, m2 in zip(self.motivators, other.motivators):
+            new = m1.breed(m2)
+            motivators.append(new)
+        n = len(self.xs)
+        x_max = self.xs[-1]
+        child = Person(n, x_max, motivators=motivators)
         return child
 
 
@@ -197,9 +408,8 @@ class Life_History():
     def run_one(self, context, n):
         person = self.person
         for i in range(n):
-            agency = person.get_agency()
-            ps = context.sample(agency=agency)
-            person.learn(ps)
+            cue_dist = context.sample()
+            person.process(cue_dist)
     
     def run(self):
         for d in self.contexts:
@@ -210,8 +420,10 @@ class Population():
     """ Put lots of people through life histories and generations """
     def __init__(self):
         self.history = {'valence': [],
-                        'effort': [],
-                        'agency': [],
+                        'instincts': [],
+                        'niche_effort': [],
+                        'response_effort': [],
+                        'reinforcement': [],
                         'obj_wb': [],
                         'subj_wb': [],
                         }
@@ -223,7 +435,8 @@ class Population():
         pop = []
         for i in range(pop_size):
             person = Person(*args, **kwargs)
-            person.setup(random_seed=random_seed)
+            seed = random_seed + 33 * i
+            person.setup(random_seed=seed)
             pop.append(person)
         self.pop = pop
     
@@ -242,17 +455,20 @@ class Population():
         return np.mean(wbs)
 
     def get_ave_subj_wb(self):
-        wbs = [p.subjective_wellbeing()[1] for p in self.pop]
-        return np.mean(wbs)
+        wbs = [p.subjective_wellbeing() for p in self.pop]
+        return np.mean(wbs, axis=0)
     
     def get_ave_valence(self):
         return np.mean(np.array([p.valence for p in self.pop]), axis=0)
     
-    def get_ave_effort(self):
-        return np.mean(np.array([p.effort for p in self.pop]), axis=0)
+    def get_ave_instincts(self):
+        return np.mean(np.array([p.instincts for p in self.pop]), axis=0)
     
-    def get_ave_agency(self):
-        return np.mean(np.array([p.get_agency() for p in self.pop]), axis=0)
+    def get_ave_niche_effort(self):
+        return np.mean(np.array([p.niche_effort for p in self.pop]), axis=0)
+    
+    def get_ave_reinforcement(self):
+        return np.mean(np.array([p.reinforcement for p in self.pop]), axis=0)
     
     def breed(self, p_survive=0.5):
         n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
@@ -274,8 +490,9 @@ class Population():
     def record_hist(self):
         hist = self.history
         hist['valence'].append(self.get_ave_valence())
-        hist['effort'].append(self.get_ave_effort())
-        hist['agency'].append(self.get_ave_agency())
+        hist['instincts'].append(self.get_ave_instincts())
+        hist['niche_effort'].append(self.get_ave_niche_effort())
+        hist['reinforcement'].append(self.get_ave_reinforcement())
         hist['obj_wb'].append(self.get_ave_obj_wb())
         hist['subj_wb'].append(self.get_ave_subj_wb())
     
@@ -284,8 +501,9 @@ class Population():
             self.run_generation()
             self.record_hist()
             print(len(self.history['valence']),
-                  self.get_ave_obj_wb(),
-                  self.get_ave_subj_wb())
+                  self.history['obj_wb'][-1],
+                  self.history['subj_wb'][-1])
             self.breed(p_survive=p_survive)
+        self.run_generation()
         
     
