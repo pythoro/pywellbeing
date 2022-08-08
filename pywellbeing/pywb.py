@@ -135,6 +135,13 @@ class Prediction_Error(Motivator):
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
+    
+    def get_rates(self, cue_dist, behaviour_dist):
+        occurance_dist = cue_dist * behaviour_dist 
+        occurances = occurance_dist * self._n_events
+        rates = 1 - (1 - self._rate)**occurances
+        return rates
+    
     def process(self, cue_dist, behaviour_dist, weighted_error):
         actual = self._base
         predicted = self._learned_vals
@@ -142,8 +149,8 @@ class Prediction_Error(Motivator):
         weighted_error = prediction_error * cue_dist * behaviour_dist * 100
         self._prediction_error = prediction_error
         self._weighted_error = weighted_error
-        self._weighted_error_rate = weighted_error / cue_dist
-        self._learned_vals += weighted_error * self._rate
+        rates = self.get_rates(cue_dist, behaviour_dist)
+        self._learned_vals += prediction_error * rates
         self.decay_vals(cue_dist)
         
     def get_prediction_error(self):
