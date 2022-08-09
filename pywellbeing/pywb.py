@@ -8,7 +8,7 @@ Created on Sat May  7 13:17:45 2022
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import genpareto, norm, logistic
-
+from pathlib import Path
 
 def get_xs(x_max, n):
     return np.linspace(-x_max, x_max, n)
@@ -129,17 +129,16 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.1, n_events=1000, **kwargs):
+    def __init__(self, *args, rate=0.25, **kwargs):
         self._rate = rate
-        self._n_events = n_events
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
     
     def get_rates(self, cue_dist, behaviour_dist):
         occurance_dist = cue_dist * behaviour_dist 
-        occurances = occurance_dist * self._n_events
-        rates = 1 - (1 - self._rate)**occurances
+        occurances = occurance_dist / np.max(occurance_dist)
+        rates = occurances * self._rate
         return rates
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
@@ -322,6 +321,10 @@ class Person():
         return self.planner.learned_vals
         
     @property
+    def niche_mod(self):
+        return self.planner.cue_mod(self.niche_effort)
+    
+    @property
     def cue_dist(self):
         return self.history['cue_dist'][-1]
 
@@ -398,7 +401,7 @@ class Person():
         neg = np.sum(sums[neg_xs])
         pos = np.sum(sums[~neg_xs])
         net = np.sum(sums)
-        ratio = pos / (pos - neg)
+        ratio = pos / (abs(pos) + abs(neg))
         return neg, pos, net, ratio
     
     def objective_wellbeing(self, i=None, n=1000, decay=1):
@@ -555,8 +558,8 @@ class Population():
         hist = self.history
         hist['valence'].append(self.get_ave_valence())
         hist['instincts'].append(self.get_ave_instincts())
-        hist['niche_effort'].append(self.get_ave_niche_effort())
         hist['reinforcement'].append(self.get_ave_reinforcement())
+        hist['niche_effort'].append(self.get_ave_niche_effort())
         hist['cue_dist'].append(self.get_ave_cue_dist())
         hist['behaviour_dist'].append(self.get_ave_behaviour_dist())
         hist['weighted_error'].append(self.get_ave_weighted_error())
@@ -574,19 +577,32 @@ class Population():
             self.breed(p_survive=p_survive)
         self.run_generation()
         
-    def plot_history(self, ax=None, var='obj_wb', label='Objective wellbeing'):
+    def _save_fig(self, var, folder, fmt='png'):
+        if folder is None:
+            return
+        path = Path(folder)
+        fname = (path / var).as_posix() + '.' + fmt
+        plt.savefig(fname=fname, dpi=300, format=fmt)
+        
+    def plot_history(self, ax=None, var='obj_wb', label='Objective wellbeing',
+                     folder=None, fmt='png'):
         if ax is None:
             fig, ax = plt.subplots()
         inds = np.arange(0, len(self.history['valence']), 1)
         vals = np.array(self.history[var])
+        if var == 'subj_wb':
+            vals = vals[:,:,3]
         ax.errorbar(inds,
                     vals[:,0],
                     yerr=vals[:,1]*1.96
                     )
-        ax.xlabel('Generation')
-        ax.ylabel(label)
+        ax.set_xlabel('Generation')
+        ax.set_ylabel(label)
+        fig.tight_layout()
+        self._save_fig(var, folder, fmt)
         
-    def plot(self, var='valence', label='Valence', i=-1):
+    def plot(self, var='valence', label='Valence', i=-1, folder=None,
+             fmt='png'):
         plt.figure()
         self.history[var]
         xs = self.pop[0].xs
@@ -596,6 +612,34 @@ class Population():
                      fmt='o')
         plt.xlabel('RL impact')
         plt.ylabel(label)
+        plt.tight_layout()
+        self._save_fig(var, folder, fmt)
 
+    def plot_all(self, folder=None, fmt='png'):
+        self.plot_history(var='obj_wb', 
+                          label='Objective wellbeing',
+                          folder=folder,
+                          fmt=fmt)
+        self.plot_history(var='subj_wb',
+                          label='Subjective wellbeing',
+                          folder=folder,
+                          fmt=fmt)
+        self.plot(var='valence', label='Cue valence',
+                  folder=folder, fmt=fmt)
+        self.plot(var='instincts', label='Instincts',
+                  folder=folder, fmt=fmt)
+        self.plot(var='reinforcement', label='Routines',
+                  folder=folder, fmt=fmt)
+        self.plot(var='niche_effort', label='Niche effort',
+                  folder=folder, fmt=fmt)
+        self.plot(var='prediction_error', label='Prediction error',
+                  folder=folder, fmt=fmt)
+        self.plot(var='cue_dist', label='Cue distribution',
+                  folder=folder, fmt=fmt)
+        self.plot(var='behaviour_dist', label='Behaviour factor',
+                  folder=folder, fmt=fmt)
         
+        
+        
+
         
