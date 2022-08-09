@@ -41,6 +41,13 @@ class Context():
     def expected_value(self):
         return np.mean(self.xs * self.ps)
 
+    def plot(self):
+        plt.figure()
+        plt.scatter(self.xs, self.ps)
+        plt.xlabel('RL impact')
+        plt.ylabel('Occurance likelihood')
+        plt.tight_layout()
+
 
 class Motivator():
     UNIQUE_SEED_MODIFIER = 37
@@ -296,6 +303,9 @@ class Person():
         return Person(n, x_max, motivators=self.motivators,
                       a_decay=self._a_decay)
     
+    def set_record_history(self, history):
+        self._record_history = history
+    
     @property
     def predictor(self):
         return self._predictor
@@ -467,6 +477,7 @@ class Population():
                         'reinforcement': [],
                         'cue_dist': [],
                         'behaviour_dist': [],
+                        'occurances': [],
                         'weighted_error': [],
                         'prediction_error': [],
                         'obj_wb': [],
@@ -475,6 +486,11 @@ class Population():
     
     def set_life_history(self, lh):
         self.lh = lh
+    
+    def set_pop(self, population):
+        self.pop = [p.copy() for p in population.pop]
+        for p in self.pop:
+            p.reset()
     
     def set_population(self, pop_size, random_seed=None, 
                        n_history=10, *args, **kwargs):
@@ -537,6 +553,10 @@ class Population():
         vals = np.array([p.prediction_error for p in self.pop])
         return np.mean(vals, axis=0), np.std(vals, axis=0)
     
+    def get_ave_occurances(self):
+        vals = np.array([p.cue_dist * p.behaviour_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
     def breed(self, p_survive=0.5):
         n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
         top, bottom, breeders = self._split(n_fail=n_fail)
@@ -562,6 +582,7 @@ class Population():
         hist['niche_effort'].append(self.get_ave_niche_effort())
         hist['cue_dist'].append(self.get_ave_cue_dist())
         hist['behaviour_dist'].append(self.get_ave_behaviour_dist())
+        hist['occurances'].append(self.get_ave_occurances())
         hist['weighted_error'].append(self.get_ave_weighted_error())
         hist['prediction_error'].append(self.get_ave_prediction_error())
         hist['obj_wb'].append(self.get_ave_obj_wb())
@@ -577,13 +598,15 @@ class Population():
             self.breed(p_survive=p_survive)
         self.run_generation()
         
-    def _save_fig(self, var, folder, fmt='png'):
+    def _save_fig(self, var, folder, fmt='png', i=-1):
         if folder is None:
             return
         path = Path(folder)
-        fname = (path / var).as_posix() + '.' + fmt
+        fname = (path / var).as_posix() + '_i' + str(i) + '.' + fmt
         plt.savefig(fname=fname, dpi=300, format=fmt)
-        
+     
+    # def plot_gen_history()   
+     
     def plot_history(self, ax=None, var='obj_wb', label='Objective wellbeing',
                      folder=None, fmt='png'):
         if ax is None:
@@ -613,11 +636,11 @@ class Population():
         plt.xlabel('RL impact')
         plt.ylabel(label)
         plt.tight_layout()
-        self._save_fig(var, folder, fmt)
+        self._save_fig(var, folder, fmt, i=i)
 
-    def plot_all(self, folder=None, fmt='png'):
+    def plot_all(self, folder=None, fmt='png', i=-1):
         self.plot_history(var='obj_wb', 
-                          label='Objective wellbeing',
+                          label='Reproductive likelihood',
                           folder=folder,
                           fmt=fmt)
         self.plot_history(var='subj_wb',
@@ -625,19 +648,21 @@ class Population():
                           folder=folder,
                           fmt=fmt)
         self.plot(var='valence', label='Cue valence',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='instincts', label='Instincts',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='reinforcement', label='Routines',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='niche_effort', label='Niche effort',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='prediction_error', label='Prediction error',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='cue_dist', label='Cue distribution',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
         self.plot(var='behaviour_dist', label='Behaviour factor',
-                  folder=folder, fmt=fmt)
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='occurances', label='Occurance likelihood',
+                  i=i, folder=folder, fmt=fmt)
         
         
         
