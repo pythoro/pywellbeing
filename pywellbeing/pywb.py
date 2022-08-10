@@ -144,7 +144,7 @@ class Prediction_Error(Motivator):
     
     def get_rates(self, cue_dist, behaviour_dist):
         occurance_dist = cue_dist * behaviour_dist 
-        occurances = occurance_dist / np.max(occurance_dist)
+        occurances = occurance_dist * 8.0
         rates = occurances * self._rate
         return rates
     
@@ -174,7 +174,7 @@ class Routines(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.01, **kwargs):
+    def __init__(self, *args, rate=0.03, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
     
