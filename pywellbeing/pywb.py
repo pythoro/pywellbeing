@@ -176,15 +176,21 @@ class Routines(Motivator):
     
     def __init__(self, *args, rate=0.03, **kwargs):
         self._rate = rate
+        self._do_learn = True
         super().__init__(*args, **kwargs)
     
     def learn(self, weighted_error):
         self._learned_vals += weighted_error * self._rate
 
+    def set_do_learn(self, flag):
+        self._do_learn = flag
+
     def get_behaviour_tendency(self):
         return self._learned_vals
 
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        if not self._do_learn:
+            return
         self.learn(weighted_error)
         self.decay_vals(cue_dist)
     
@@ -199,8 +205,12 @@ class Planned_Control(Motivator):
                  **kwargs):
         self._rate = rate
         self._num = num
+        self._do_learn = True
         super().__init__(*args, **kwargs)
         self._tot = len(self.xs) * f_tot
+
+    def set_do_learn(self, flag):
+        self._do_learn = flag
 
     def set_behaviour(self, behaviour):
         self._behaviour = behaviour
@@ -238,6 +248,8 @@ class Planned_Control(Motivator):
             return self._learn_unlim(weighted_error)
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        if not self._do_learn:
+            return
         self.learn(cue_dist, weighted_error)
         self.decay_vals(cue_dist)
 
@@ -305,6 +317,10 @@ class Person():
     
     def set_record_history(self, history):
         self._record_history = history
+    
+    def set_do_learn(self, flag):
+        self._planned_control.set_do_learn(flag)
+        self._routines.set_do_learn(flag)
     
     @property
     def predictor(self):
@@ -386,11 +402,29 @@ class Person():
             motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
         self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
 
-    def subj_wb_history(self, k=3, n=5, decay=None):
+    def subj_wb_history(self, k=3, n=1, decay=None):
         n_hist = len(self.history['cue_dist'])
         indices = np.arange(2, n_hist, 1)
         wb = [self.subjective_wellbeing(i=i, n=n, decay=decay)[k] for i in indices]
         return indices, np.array(wb)
+    
+    def subj_wb_history_decayed(self, k=3, n=100, decay=0.9):
+        return self.subj_wb_history(k=k, n=n, decay=decay)
+    
+    def plot_wb_history(self, xlim=None):
+        plt.figure()
+        vals = []
+        for p in self.pop:
+            inds, v = p.subj_wb_history()
+            vals.append(v)
+        vals = np.array(vals)
+        means = np.mean(vals, axis=0)
+        std = np.std(vals, axis=0)
+        plt.plot(inds, vals[:10].T)
+        plt.xlabel('Period')
+        plt.ylabel('Subjective wellbeing')
+        plt.xlim(xlim)
+        plt.tight_layout()
     
     def obj_wb_history(self):
         n = len(self.history['cue_dist'])
@@ -398,7 +432,7 @@ class Person():
         wb = [self.objective_wellbeing(i) for i in indices]
         return indices, np.array(wb)
 
-    def subjective_wellbeing(self, i=None, n=5, decay=None):
+    def subjective_wellbeing(self, i=None, n=1, decay=None):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         neg_xs = self.xs < 0
@@ -487,10 +521,11 @@ class Population():
     def set_life_history(self, lh):
         self.lh = lh
     
-    def set_pop(self, population):
+    def set_pop(self, population, reset=True):
         self.pop = [p.copy() for p in population.pop]
-        for p in self.pop:
-            p.reset()
+        if reset:
+            for p in self.pop:
+                p.reset()
     
     def set_population(self, pop_size, random_seed=None, 
                        n_history=10, *args, **kwargs):
@@ -605,9 +640,28 @@ class Population():
         fname = (path / var).as_posix() + '_i' + str(i) + '.' + fmt
         plt.savefig(fname=fname, dpi=300, format=fmt)
      
-    # def plot_gen_history()   
+    def plot_gen_history(self, var='subj_wb', ylabel='Subjective wellbeing',
+                         label=None,
+                     folder=None, fmt='png', xlim=None, start=None, end=10,
+                     fignum=None, **kwargs):
+        plt.figure(num=fignum)
+        vals = []
+        for p in self.pop[start:end]:
+            inds, v = p.subj_wb_history(**kwargs)
+            vals.append(v)
+        vals = np.array(vals)
+        means = np.mean(vals, axis=0)
+        std = np.std(vals, axis=0)
+        plt.plot(inds, vals.T, label=label)
+        plt.xlabel('Period')
+        plt.ylabel(label)
+        plt.xlim(xlim)
+        plt.tight_layout()
+        self._save_fig(var + '_gen_hist', folder, fmt)
+        
      
-    def plot_history(self, ax=None, var='obj_wb', label='Objective wellbeing',
+    def plot_history(self, ax=None, var='obj_wb',
+                     label='Reproductive likelihood',
                      folder=None, fmt='png'):
         if ax is None:
             fig, ax = plt.subplots()

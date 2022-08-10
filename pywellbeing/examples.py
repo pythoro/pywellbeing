@@ -26,32 +26,44 @@ class Simplest():
     
     
     def hedonic_adaptation(self, pop, n=80, x_max=3, random_seed=0,
-                           j=1000, k=1000, loc=0.5):
+                           j=199, k=200, l=0, loc=-0.5, do_learn=False):
         normal = pywb.Context(n=n, x_max=x_max)
         normal.setup(random_seed + 1000)
         novel = pywb.Context(n=n, x_max=x_max, loc=loc)
         novel.setup(random_seed + 1000)
         lh = pywb.Life_History()
+        lh.add_context(normal, j)
+        lh.add_context(novel, k)
+        if l > 0:
+            lh.add_context(normal, l)
         population = pywb.Population()
         population.set_pop(pop)
-        for p in population.pop:
-            p.set_record_history(True)
         population.set_life_history(lh)
+        [p.set_do_learn(do_learn) for p in population.pop]
         population.run_generation()
         return population
         
     def hedonic_adaptation_2(self, pop, n=80, x_max=3, random_seed=0,
-                           j=999, k=1000, f=20.0, ind=20):
+                           j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
         normal = pywb.Context(n=n, x_max=x_max)
         normal.setup(random_seed + 1000)
         novel = pywb.Context(n=n, x_max=x_max)
         novel.setup(random_seed + 1000)
         novel.ps[ind] *= f
         lh = pywb.Life_History()
+        lh.add_context(normal, j)
+        lh.add_context(novel, k)
+        if l > 0:
+            lh.add_context(normal, l)
         population = pywb.Population()
-        population.set_pop(pop)
-        for p in population.pop:
-            p.set_record_history(True)
+        population.set_pop(pop, reset=False)
         population.set_life_history(lh)
+        [p.set_do_learn(do_learn) for p in population.pop]
         population.run_generation()
         return population
+    
+    def hedonic_adaptation_3(self, pop, **kwargs):
+        return self.hedonic_adaptation_2(pop, ind=60, **kwargs)
+    
+    
+
