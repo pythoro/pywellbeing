@@ -89,8 +89,8 @@ class Motivator():
     
     """
     
-    UNIQUE_SEED_MODIFIER = 37
-    START_ZEROED = False
+    UNIQUE_SEED_MODIFIER = 37  # Make sure it has unique random values
+    START_ZEROED = False  # True if no inheritence occurs
     
     def __init__(self,
                  n,
@@ -354,23 +354,52 @@ class Planned_Control(Motivator):
         self._tot = len(self.xs) * f_tot
 
     def set_do_learn(self, flag):
+        """ Turn learning off or on """
         self._do_learn = flag
     
-    def cue_mod(self, modifier):
-        adj = modifier
-        return 5.0**adj 
+    def cue_mod(self, effort):
+        """ This calculates the multiplier used on the cue distribution 
+        
+        Args:
+            modifier (ndarray): An array of learned y values that correspond
+            with effort.
+            
+        Returns:
+            ndarray: An array of modification factors.
+        """
+        return 5.0**effort
     
-    def _learn_unlim(self, weighted_error):
+    def _learn_under_effort_capacity(self, weighted_error):
+        """ Learning that happens initially when effort is under capacity 
+
+        Args:
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        
+        Returns:
+            ndarray: The array of incremental changes to make to effort.
+        """
         err = weighted_error
         changes = np.ones_like(self.xs) * self._rate
         changes = np.copysign(changes, err)
-        self._learned_vals += changes
+        return changes
     
-    def _learn_lim(self, cue_dist, weighted_error):
-        """ TODO: Cap effort somehow """
+    def _learn_at_effort_capacity(self, cue_dist, weighted_error):
+        """ Learning that happens when effort is at capacity 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+                
+        Returns:
+            ndarray: The array of incremental changes to make to effort.
+        """
         err = weighted_error
         effort = self._learned_vals
-        d_effort = (self.cue_mod(effort + self._rate) - self.cue_mod(effort)) * cue_dist
+        d_effort = (self.cue_mod(effort + self._rate) 
+                  - self.cue_mod(effort)) * cue_dist
         inds = np.arange(0, len(self.xs), 1)
         A = np.random.choice(inds, size=self._num)
         B = np.random.choice(inds, size=self._num)
@@ -380,29 +409,58 @@ class Planned_Control(Motivator):
         changes = np.zeros_like(self.xs)
         changes[A] = direction * self._rate
         changes[B] = -direction * self._rate
-        self._learned_vals += changes
+        return changes
     
     def learn(self, cue_dist, weighted_error):
+        """ Main learning step - called each period 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        """
         if np.sum(np.abs(self._learned_vals)) >= self._tot:
-            return self._learn_lim(cue_dist, weighted_error)
+            changes = self._learn_at_effort_capacity(cue_dist, weighted_error)
         else:
-            return self._learn_unlim(weighted_error)
+            changes = self._learn_under_effort_capacity(weighted_error)
+        self._learned_vals += changes
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        """ Main processing step - called each period 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment (and modified by effort).
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        """
         if not self._do_learn:
             return
         self.learn(cue_dist, weighted_error)
         self.decay_vals(cue_dist)
 
     def get_behaviour_tendency(self):
-        """ Don't modify behavioural responses """
+        """ Return zeros to not modify behavioural responses """
         return np.zeros_like(self.xs)
     
     def get_cue_dist_mod(self):
-        mod = self.cue_mod(self._learned_vals)
-        return mod
+        """ Return the modification factors based on effort"""
+        return self.cue_mod(self._learned_vals)
     
     def get_modified_cue_dist(self, cue_dist):
+        """ Return the modified cue distribution that's changed by effort 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment (and modified by effort).
+                
+        Returns:
+            ndarray: The new distribution of cues modified by effort to be 
+            used in the next period.
+        """
         mod = self.cue_mod(self._learned_vals)
         return mod * cue_dist
         
@@ -535,7 +593,6 @@ class Person():
                       ]
         for motivator in motivators:
             behaviour_dist_ys += motivator.get_behaviour_tendency()
-        # TODO: Use dict for motivators
         weighted_error = self.predictor.get_weighted_error()
         behaviour_dist = logistic.cdf(behaviour_dist_ys)
         mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
