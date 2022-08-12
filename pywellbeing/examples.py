@@ -11,25 +11,25 @@ from . import pywb
 
 
 class Simplest():
-    def run(self, pop_size=300, n=80, x_max=3, random_seed=0, j=200,
+    def run(self, pop_size=300, random_seed=0, j=200,
             gen=80, p_survive=0.6):
-        context = pywb.Context(n=n, x_max=x_max)
+        context = pywb.Context()
         context.setup(random_seed + 1000)
         lh = pywb.Life_History()
         lh.add_context(context, j)
         population = pywb.Population()
         population.set_population(pop_size, random_seed=random_seed,
-                                  n=n, x_max=x_max, n_history=10)
+                                  n_history=10)
         population.set_life_history(lh)
         population.run(gen=gen, p_survive=p_survive)
         return population
     
     
-    def hedonic_adaptation(self, pop, n=80, x_max=3, random_seed=0,
+    def hedonic_adaptation(self, pop, random_seed=0,
                            j=199, k=200, l=0, loc=-0.5, do_learn=False):
-        normal = pywb.Context(n=n, x_max=x_max)
+        normal = pywb.Context()
         normal.setup(random_seed + 1000)
-        novel = pywb.Context(n=n, x_max=x_max, loc=loc)
+        novel = pywb.Context(loc=loc)
         novel.setup(random_seed + 1000)
         lh = pywb.Life_History()
         lh.add_context(normal, j)
@@ -43,11 +43,11 @@ class Simplest():
         population.run_generation()
         return population
         
-    def hedonic_adaptation_2(self, pop, n=80, x_max=3, random_seed=0,
+    def hedonic_adaptation_2(self, pop, random_seed=0,
                            j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
-        normal = pywb.Context(n=n, x_max=x_max)
+        normal = pywb.Context()
         normal.setup(random_seed + 1000)
-        novel = pywb.Context(n=n, x_max=x_max)
+        novel = pywb.Context()
         novel.setup(random_seed + 1000)
         novel.ps[ind] *= f
         lh = pywb.Life_History()

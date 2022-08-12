@@ -10,8 +10,14 @@ import matplotlib.pyplot as plt
 from scipy.stats import genpareto, norm, logistic
 from pathlib import Path
 
-def get_xs(x_max, n):
-    return np.linspace(-x_max, x_max, n)
+settings = {
+    'n': 80,  # The number of cues along x.
+    'x_max': 3,  # The maximum x-value magnitude cues.
+}
+
+
+def get_xs():
+    return np.linspace(-settings['x_max'], settings['x_max'], settings['n'])
 
 
 class Context():
@@ -26,13 +32,10 @@ class Context():
         loc (float): The mean of the normal distribution. Defaults to 0.0.
         
     """
-    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0, loc=0.0):
-        self._params = {'n': n,
-                        'x_max': x_max,
-                        'c': c,
-                        'scale': scale,
-                        'prob': prob,
-                        'loc': loc}
+    def __init__(self, scale=1.0, prob=1.0, loc=0.0):
+        self._scale = scale
+        self._prob = prob
+        self._loc = loc
     
     def setup(self, random_seed=None):
         """ Setup the cues 
@@ -41,14 +44,14 @@ class Context():
             random_seed (int): A seed value for random number generation, to
                 allow repeatable runs.
         """
-        p = self._params
-        xs = get_xs(p['x_max'], p['n'])
-        nom = norm.pdf(xs, loc=p['loc'])
+        xs = get_xs()
+        n = settings['n']
+        nom = norm.pdf(xs, loc=self._loc)
         rs = np.random.default_rng(random_seed)
-        probs = [1 - p['prob'], p['prob']]
-        ps = rs.choice([0, 1], size=p['n'], p=probs) * nom
+        probs = [1 - self._prob, self._prob]
+        ps = rs.choice([0, 1], size=n, p=probs) * nom
         self.xs = xs
-        self.inds = np.arange(p['n'])
+        self.inds = np.arange(n)
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
     def sample(self):
@@ -73,8 +76,6 @@ class Motivator():
     of the same time, and history recording.
     
     Args:
-        n (float): The number of cues along x. Must match the context.
-        x_max (float): The maximum x-value of a cue. Must match the context.
         random_seed (int): A seed value for random number generation, to
             allow repeatable runs.
         init (ndarray): An optional set of initial values. Used for breeding.
@@ -93,8 +94,6 @@ class Motivator():
     START_ZEROED = False  # True if no inheritence occurs
     
     def __init__(self,
-                 n,
-                 x_max,
                  random_seed=None,
                  init=None,
                  decay=0.98,
@@ -106,9 +105,10 @@ class Motivator():
         self._history = {'vals': [],
                          'behaviour_tendency': [],
                          'cue_dist_modifier': []}
-        self.setup(n, x_max, random_seed=random_seed, init=init)
+        self.setup(random_seed=random_seed, init=init)
         
-    def setup(self, n, x_max, random_seed=None, init=None):
+    def setup(self, random_seed=None, init=None):
+        n = settings['n']
         if self.START_ZEROED:
             self._base = np.zeros(n)
             self._learned_vals = np.zeros(n)
@@ -122,7 +122,7 @@ class Motivator():
         else:
             self._base = init.copy()
             self._learned_vals = np.zeros_like(self._base)
-        self.xs = xs = get_xs(x_max, n)
+        self.n = n
     
     def reset(self):
         self._learned_vals = np.zeros_like(self._base)
@@ -163,7 +163,7 @@ class Motivator():
         raise NotImplementedError
     
     def get_cue_dist_modifier(self):
-        return np.zeros_like(self.xs)
+        return np.zeros(self.n)
 
     def breed(self, other):
         """ Breed this motivator with another of the same kind 
@@ -176,8 +176,7 @@ class Motivator():
             from each parent.
         
         """
-        n = len(self.xs)
-        x_max = self.xs[-3]
+        n = self.n
         from_other = np.random.choice([False, True], size=n)
         inherited = self._base.copy()
         inherited[from_other] = other._base[from_other]
@@ -185,7 +184,7 @@ class Motivator():
         rs = np.random.default_rng()
         error = rs.normal(scale=self._z_sd, size=n)
         init = inherited + error
-        new_motivator = self.__class__(n=n, x_max=x_max, init=init)
+        new_motivator = self.__class__(init=init)
         return new_motivator
     
     def decay_vals(self, cue_dist):
@@ -351,7 +350,8 @@ class Planned_Control(Motivator):
         self._num = num
         self._do_learn = True
         super().__init__(*args, **kwargs)
-        self._tot = len(self.xs) * f_tot
+        self._n = settings['n']
+        self._tot = self._n * f_tot
 
     def set_do_learn(self, flag):
         """ Turn learning off or on """
@@ -380,7 +380,7 @@ class Planned_Control(Motivator):
             ndarray: The array of incremental changes to make to effort.
         """
         err = weighted_error
-        changes = np.ones_like(self.xs) * self._rate
+        changes = np.ones(self._n) * self._rate
         changes = np.copysign(changes, err)
         return changes
     
@@ -400,13 +400,13 @@ class Planned_Control(Motivator):
         effort = self._learned_vals
         d_effort = (self.cue_mod(effort + self._rate) 
                   - self.cue_mod(effort)) * cue_dist
-        inds = np.arange(0, len(self.xs), 1)
+        inds = np.arange(0, self._n, 1)
         A = np.random.choice(inds, size=self._num)
         B = np.random.choice(inds, size=self._num)
         diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
         direction = np.ones_like(A)
         direction[diff < 0] = -1
-        changes = np.zeros_like(self.xs)
+        changes = np.zeros(self._n)
         changes[A] = direction * self._rate
         changes[B] = -direction * self._rate
         return changes
@@ -444,7 +444,7 @@ class Planned_Control(Motivator):
 
     def get_behaviour_tendency(self):
         """ Return zeros to not modify behavioural responses """
-        return np.zeros_like(self.xs)
+        return np.zeros(self._n)
     
     def get_cue_dist_mod(self):
         """ Return the modification factors based on effort"""
@@ -466,22 +466,18 @@ class Planned_Control(Motivator):
         
 
 class Person():
-    def __init__(self, n, x_max, motivators=None, a_decay=0.97,
+    def __init__(self, motivators=None, a_decay=0.97,
                  history=False):
-        self.xs = get_xs(x_max, n)
         self.setup(motivators)
         self._a_decay = a_decay
         self._record_history = history
             
     def setup(self, motivators=None, random_seed=None):
-        n = len(self.xs)
-        x_max = self.xs[-1]
         if motivators is None:
-            self._predictor = Prediction_Error(n, x_max, random_seed=random_seed)
-            self._instincts = Instincts(n, x_max, random_seed=random_seed)
-            self._routines = Routines(n, x_max, random_seed=random_seed)
-            self._planned_control = Planned_Control(n, x_max,
-                                                    random_seed=random_seed)
+            self._predictor = Prediction_Error(random_seed=random_seed)
+            self._instincts = Instincts(random_seed=random_seed)
+            self._routines = Routines(random_seed=random_seed)
+            self._planned_control = Planned_Control(random_seed=random_seed)
         else:
             self.set_motivators(motivators)
         self._random_seed = random_seed
@@ -509,9 +505,7 @@ class Person():
             motivator.reset()
     
     def copy(self):
-        n = len(self.xs)
-        x_max = self.xs[-1]
-        return Person(n, x_max, motivators=self.motivators,
+        return Person(motivators=self.motivators,
                       a_decay=self._a_decay)
     
     def set_record_history(self, history):
@@ -633,7 +627,8 @@ class Person():
     def subjective_wellbeing(self, i=None, n=1, decay=None):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
-        neg_xs = self.xs < 0
+        xs = get_xs()
+        neg_xs = xs < 0
         costs_benefits = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
         decay = self._a_decay if decay is None else decay
@@ -653,7 +648,7 @@ class Person():
         weights = np.power(self._a_decay, inds) + 1e-2
         cue_dist = np.array(self.history['cue_dist'][start:end])
         behaviour_dist = np.array(self.history['behaviour_dist'][start:end])
-        xs = self.xs.reshape(1, -1)
+        xs = get_xs().reshape(1, -1)
         costs_benefits = xs * cue_dist * behaviour_dist
         totals = weights.reshape(-1, 1) * costs_benefits * 1000
         return np.sum(totals) / np.sum(weights)
@@ -664,9 +659,7 @@ class Person():
         for m1, m2 in zip(self.motivators, other.motivators):
             new = m1.breed(m2)
             motivators.append(new)
-        n = len(self.xs)
-        x_max = self.xs[-1]
-        child = Person(n, x_max, motivators=motivators)
+        child = Person(motivators=motivators)
         return child
 
 
