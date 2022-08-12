@@ -136,7 +136,7 @@ class Prediction_Error(Motivator):
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.25, **kwargs):
+    def __init__(self, *args, rate=2, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
@@ -144,7 +144,7 @@ class Prediction_Error(Motivator):
     
     def get_rates(self, cue_dist, behaviour_dist):
         occurance_dist = cue_dist * behaviour_dist 
-        occurances = occurance_dist * 8.0
+        occurances = occurance_dist
         rates = occurances * self._rate
         return rates
     
@@ -152,7 +152,7 @@ class Prediction_Error(Motivator):
         actual = self._base
         predicted = self._learned_vals
         prediction_error = actual - predicted
-        weighted_error = prediction_error * cue_dist * behaviour_dist * 100
+        weighted_error = prediction_error * cue_dist * behaviour_dist
         self._prediction_error = prediction_error
         self._weighted_error = weighted_error
         rates = self.get_rates(cue_dist, behaviour_dist)
@@ -174,7 +174,7 @@ class Routines(Motivator):
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.03, **kwargs):
+    def __init__(self, *args, rate=3.0, **kwargs):
         self._rate = rate
         self._do_learn = True
         super().__init__(*args, **kwargs)
