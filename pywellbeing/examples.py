@@ -13,12 +13,13 @@ from . import pywb
 class Simplest():
     def run(self, pop_size=300, random_seed=0, j=200,
             gen=80, p_survive=0.6):
+        pywb.random.set_random_seed(random_seed)
         context = pywb.Context()
-        context.setup(random_seed + 1000)
+        context.setup()
         lh = pywb.Life_History()
         lh.add_context(context, j)
         population = pywb.Population()
-        population.set_population(pop_size, random_seed=random_seed,
+        population.set_population(pop_size,
                                   n_history=10)
         population.set_life_history(lh)
         population.run(gen=gen, p_survive=p_survive)
@@ -27,10 +28,11 @@ class Simplest():
     
     def hedonic_adaptation(self, pop, random_seed=0,
                            j=199, k=200, l=0, loc=-0.5, do_learn=False):
+        pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
-        normal.setup(random_seed + 1000)
+        normal.setup()
         novel = pywb.Context(loc=loc)
-        novel.setup(random_seed + 1000)
+        novel.setup()
         lh = pywb.Life_History()
         lh.add_context(normal, j)
         lh.add_context(novel, k)
@@ -45,10 +47,11 @@ class Simplest():
         
     def hedonic_adaptation_2(self, pop, random_seed=0,
                            j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
+        pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
-        normal.setup(random_seed + 1000)
+        normal.setup()
         novel = pywb.Context()
-        novel.setup(random_seed + 1000)
+        novel.setup()
         novel.ps[ind] *= f
         lh = pywb.Life_History()
         lh.add_context(normal, j)

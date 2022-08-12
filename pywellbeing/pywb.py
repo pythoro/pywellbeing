@@ -20,6 +20,20 @@ def get_xs():
     return np.linspace(-settings['x_max'], settings['x_max'], settings['n'])
 
 
+class Random():
+    def __init__(self, random_seed=None):
+        self.set_random_seed(random_seed)
+    
+    def set_random_seed(self, random_seed):
+        self._rng = np.random.default_rng(random_seed)
+        
+    def get_rng(self):
+        return self._rng
+
+
+random = Random()
+
+
 class Context():
     """ Generates events with some effect with some likelihood 
     
@@ -37,19 +51,15 @@ class Context():
         self._prob = prob
         self._loc = loc
     
-    def setup(self, random_seed=None):
+    def setup(self):
         """ Setup the cues 
         
-        Args:
-            random_seed (int): A seed value for random number generation, to
-                allow repeatable runs.
         """
         xs = get_xs()
         n = settings['n']
         nom = norm.pdf(xs, loc=self._loc)
-        rs = np.random.default_rng(random_seed)
         probs = [1 - self._prob, self._prob]
-        ps = rs.choice([0, 1], size=n, p=probs) * nom
+        ps = random.get_rng().choice([0, 1], size=n, p=probs) * nom
         self.xs = xs
         self.inds = np.arange(n)
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
@@ -76,8 +86,6 @@ class Motivator():
     of the same time, and history recording.
     
     Args:
-        random_seed (int): A seed value for random number generation, to
-            allow repeatable runs.
         init (ndarray): An optional set of initial values. Used for breeding.
         decay (float): The rate at which learned values decay per period. 
             This represents 'forgetting'. Defaults to 0.98, which means 
@@ -90,11 +98,9 @@ class Motivator():
     
     """
     
-    UNIQUE_SEED_MODIFIER = 37  # Make sure it has unique random values
     START_ZEROED = False  # True if no inheritence occurs
     
     def __init__(self,
-                 random_seed=None,
                  init=None,
                  decay=0.98,
                  z_range=1.5,
@@ -105,18 +111,15 @@ class Motivator():
         self._history = {'vals': [],
                          'behaviour_tendency': [],
                          'cue_dist_modifier': []}
-        self.setup(random_seed=random_seed, init=init)
+        self.setup(init=init)
         
-    def setup(self, random_seed=None, init=None):
+    def setup(self, init=None):
         n = settings['n']
         if self.START_ZEROED:
             self._base = np.zeros(n)
             self._learned_vals = np.zeros(n)
         elif init is None:
-            random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
-            random_seed += self.UNIQUE_SEED_MODIFIER
-            rs = np.random.default_rng(random_seed)
-            base = rs.normal(scale=self._z_sd, size=n)
+            base = random.get_rng().normal(scale=self._z_sd, size=n)
             self._base = base
             self._learned_vals = np.zeros_like(base)
         else:
@@ -177,12 +180,11 @@ class Motivator():
         
         """
         n = self.n
-        from_other = np.random.choice([False, True], size=n)
+        from_other = random.get_rng().choice([False, True], size=n)
         inherited = self._base.copy()
         inherited[from_other] = other._base[from_other]
         inherited = np.clip(inherited, -self._z_range, self._z_range)
-        rs = np.random.default_rng()
-        error = rs.normal(scale=self._z_sd, size=n)
+        error = random.get_rng().normal(scale=self._z_sd, size=n)
         init = inherited + error
         new_motivator = self.__class__(init=init)
         return new_motivator
@@ -223,7 +225,6 @@ class Prediction_Error(Motivator):
     """
     
     
-    UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
     def __init__(self, *args, rate=2, **kwargs):
@@ -293,7 +294,6 @@ class Routines(Motivator):
     
     """
     
-    UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
     def __init__(self, *args, rate=3.0, **kwargs):
@@ -338,7 +338,6 @@ class Planned_Control(Motivator):
     
     """
 
-    UNIQUE_SEED_MODIFIER = 531
     START_ZEROED = True
     
     def __init__(self, *args,
@@ -401,8 +400,8 @@ class Planned_Control(Motivator):
         d_effort = (self.cue_mod(effort + self._rate) 
                   - self.cue_mod(effort)) * cue_dist
         inds = np.arange(0, self._n, 1)
-        A = np.random.choice(inds, size=self._num)
-        B = np.random.choice(inds, size=self._num)
+        A = random.get_rng().choice(inds, size=self._num)
+        B = random.get_rng().choice(inds, size=self._num)
         diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
         direction = np.ones_like(A)
         direction[diff < 0] = -1
@@ -472,15 +471,14 @@ class Person():
         self._a_decay = a_decay
         self._record_history = history
             
-    def setup(self, motivators=None, random_seed=None):
+    def setup(self, motivators=None):
         if motivators is None:
-            self._predictor = Prediction_Error(random_seed=random_seed)
-            self._instincts = Instincts(random_seed=random_seed)
-            self._routines = Routines(random_seed=random_seed)
-            self._planned_control = Planned_Control(random_seed=random_seed)
+            self._predictor = Prediction_Error()
+            self._instincts = Instincts()
+            self._routines = Routines()
+            self._planned_control = Planned_Control()
         else:
             self.set_motivators(motivators)
-        self._random_seed = random_seed
         self.history = {
             'instincts': [],
             'reinforcement': [],
@@ -718,14 +716,11 @@ class Population():
             for p in self.pop:
                 p.reset()
     
-    def set_population(self, pop_size, random_seed=None, 
-                       n_history=10, *args, **kwargs):
+    def set_population(self, pop_size, n_history=10, *args, **kwargs):
         pop = []
         for i in range(pop_size):
             history = True if i < n_history else False
             person = Person(*args, history=history, **kwargs)
-            seed = random_seed + 33 * i
-            person.setup(random_seed=seed)
             pop.append(person)
         self.pop = pop
     
@@ -788,8 +783,8 @@ class Population():
         top, bottom, breeders = self._split(n_fail=n_fail)
         new = []
         for i in range(len(self.pop)):
-            mate = other = np.random.choice(top, size=1)[0]
-            other = np.random.choice(breeders, size=1)[0]
+            mate = other = random.get_rng().choice(top, size=1)[0]
+            other = random.get_rng().choice(breeders, size=1)[0]
             new.append(mate.breed(other))
         self.pop = new
     
