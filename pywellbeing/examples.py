@@ -26,7 +26,7 @@ class Simplest():
         return population
     
     
-    def hedonic_adaptation(self, pop, random_seed=0,
+    def hedonic_adaptation_large_change(self, pop, random_seed=0,
                            j=199, k=200, l=0, loc=-0.5, do_learn=False):
         pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
@@ -45,7 +45,7 @@ class Simplest():
         population.run_generation()
         return population
         
-    def hedonic_adaptation_2(self, pop, random_seed=0,
+    def hedonic_adaptation(self, pop, random_seed=0,
                            j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
         pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
@@ -66,7 +66,7 @@ class Simplest():
         return population
     
     def hedonic_adaptation_3(self, pop, **kwargs):
-        return self.hedonic_adaptation_2(pop, ind=60, **kwargs)
+        return self.hedonic_adaptation(pop, ind=60, **kwargs)
     
     
 

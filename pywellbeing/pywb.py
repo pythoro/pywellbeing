@@ -903,6 +903,9 @@ class Population():
                   i=i, folder=folder, fmt=fmt)
         self.plot(var='occurances', label='Occurance likelihood',
                   i=i, folder=folder, fmt=fmt)
+        self.plot(var='weighted_error', label='Weighted error',
+                  i=i, folder=folder, fmt=fmt)
+        
         
         
         
