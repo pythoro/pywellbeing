@@ -626,17 +626,15 @@ class Person():
     def subjective_wellbeing(self, i=None, n=1, decay=None):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
-        xs = get_xs()
-        neg_xs = xs < 0
-        costs_benefits = np.array(self.history['weighted_error'][start:end])
+        errors = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
         decay = self._a_decay if decay is None else decay
         weights = np.power(decay, inds - start)
-        totals = weights.reshape(-1, 1) * costs_benefits
-        sums = np.sum(totals, axis=0) / np.sum(weights)
-        neg = np.sum(sums[neg_xs])
-        pos = np.sum(sums[~neg_xs])
-        net = np.sum(sums)
+        totals = weights.reshape(-1, 1) * errors
+        neg_vals = totals < 0
+        neg = np.sum(totals[neg_vals])
+        pos = np.sum(totals[~neg_vals])
+        net = np.sum(totals)
         ratio = pos / (abs(pos) + abs(neg))
         return neg, pos, net, ratio
     
