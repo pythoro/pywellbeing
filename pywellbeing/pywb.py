@@ -15,7 +15,17 @@ def get_xs(x_max, n):
 
 
 class Context():
-    """ Generates events with some effect with some likelihood """
+    """ Generates events with some effect with some likelihood 
+    
+    Args:
+        n (float): The number of cues along x.
+        x_max (float): The maximum x-value of a cue.
+        scale (float): The standard for the (normal) distribution of
+            probabilities for each cue. Defaults to 1.0.
+        prob (float): The probability factor on each cue. Defaults to 1.0.
+        loc (float): The mean of the normal distribution. Defaults to 0.0.
+        
+    """
     def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0, loc=0.0):
         self._params = {'n': n,
                         'x_max': x_max,
@@ -25,6 +35,12 @@ class Context():
                         'loc': loc}
     
     def setup(self, random_seed=None):
+        """ Setup the cues 
+        
+        Args:
+            random_seed (int): A seed value for random number generation, to
+                allow repeatable runs.
+        """
         p = self._params
         xs = get_xs(p['x_max'], p['n'])
         nom = norm.pdf(xs, loc=p['loc'])
@@ -50,13 +66,43 @@ class Context():
 
 
 class Motivator():
+    """ Base motivator class 
+    
+    This class is used as a base for other classes. It provides common
+    functionality such as the setup of random values, breeding with another
+    of the same time, and history recording.
+    
+    Args:
+        n (float): The number of cues along x. Must match the context.
+        x_max (float): The maximum x-value of a cue. Must match the context.
+        random_seed (int): A seed value for random number generation, to
+            allow repeatable runs.
+        init (ndarray): An optional set of initial values. Used for breeding.
+        decay (float): The rate at which learned values decay per period. 
+            This represents 'forgetting'. Defaults to 0.98, which means 
+            the next period has 0.98 times the previous value.
+        z_range (float): To avoid selected values from increasing in 
+            magnitude to unrealistic levels, they are capped to this 
+            absolute magnitude. Defaults to 1.5.
+        z_sd (float): The standard deviation of random error in values.
+            Defaults to 0.5.
+    
+    """
+    
     UNIQUE_SEED_MODIFIER = 37
     START_ZEROED = False
-    RANGE = 1.5
-    SD = 0.5
     
-    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.98):
+    def __init__(self,
+                 n,
+                 x_max,
+                 random_seed=None,
+                 init=None,
+                 decay=0.98,
+                 z_range=1.5,
+                 z_sd=0.5):
         self._decay = decay
+        self._z_range = z_range
+        self._z_sd = z_sd
         self._history = {'vals': [],
                          'behaviour_tendency': [],
                          'cue_dist_modifier': []}
@@ -70,7 +116,7 @@ class Motivator():
             random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
             random_seed += self.UNIQUE_SEED_MODIFIER
             rs = np.random.default_rng(random_seed)
-            base = rs.normal(scale=self.SD, size=n)
+            base = rs.normal(scale=self._z_sd, size=n)
             self._base = base
             self._learned_vals = np.zeros_like(base)
         else:
@@ -92,6 +138,21 @@ class Motivator():
     def record_history(self):
         pass
     
+    def get_occurances(self, cue_dist, behaviour_dist):
+        """ Get the occurance frequency
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+                The behaviour_dist values should be between 0 and 1.
+        
+        Returns:
+            ndarray: The occurance frequency
+        """
+        return cue_dist * behaviour_dist
+    
     def process(self, cue_dist, behaviour_dist, weighted_error):
         raise NotImplementedError
     
@@ -105,14 +166,24 @@ class Motivator():
         return np.zeros_like(self.xs)
 
     def breed(self, other):
+        """ Breed this motivator with another of the same kind 
+        
+        Args:
+            other: Another instance of the same class of motivator.
+        
+        Returns:
+            A child motivator of the same class, with values randomly chosen
+            from each parent.
+        
+        """
         n = len(self.xs)
         x_max = self.xs[-3]
         from_other = np.random.choice([False, True], size=n)
         inherited = self._base.copy()
         inherited[from_other] = other._base[from_other]
-        inherited = np.clip(inherited, -self.RANGE, self.RANGE)
+        inherited = np.clip(inherited, -self._z_range, self._z_range)
         rs = np.random.default_rng()
-        error = rs.normal(scale=self.SD, size=n)
+        error = rs.normal(scale=self._z_sd, size=n)
         init = inherited + error
         new_motivator = self.__class__(n=n, x_max=x_max, init=init)
         return new_motivator
@@ -122,6 +193,12 @@ class Motivator():
         
     
 class Instincts(Motivator):
+    """ Instinct based motivator
+    
+    This simply outputs a behaviour tendency based on the inherited values.
+
+    """
+    
     UNIQUE_SEED_MODIFIER = 25
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
@@ -133,6 +210,20 @@ class Instincts(Motivator):
 
 
 class Prediction_Error(Motivator):
+    """ Calculation of (reward) prediction error 
+    
+    This class uses inherited cue valence to calculate prediction error.
+    It uses a decay rate per period to ensure it never goes to 0 for 
+    any cue.
+    
+    Args:
+        [Defaults from Motivator]
+        rate (float): A rate at which predicted values are learned from
+            occurances. Defaults to 2.0.
+    
+    """
+    
+    
     UNIQUE_SEED_MODIFIER = 16
     RANGE = 3.0
     
@@ -142,35 +233,67 @@ class Prediction_Error(Motivator):
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
     
-    def get_rates(self, cue_dist, behaviour_dist):
-        occurance_dist = cue_dist * behaviour_dist 
-        occurances = occurance_dist
-        rates = occurances * self._rate
-        return rates
+    def learn(self, weighted_error):
+        """ Learning rates based on occurance frequency 
+
+        Note that learning only occurs when the situation has effect - this
+        is termed an occurance. The rate of learning is proportional to
+        the frequency of occurances.
+        
+        Warning:
+            For stability, the maximum weighted error should be
+            less than 1. This is normally the case. 
+
+        Args:
+            occurances (ndarray): An array of occurance frequencies.
+            prediction_error (ndarray): The prediction error per cue.
+                
+        """
+        self._learned_vals += weighted_error * self._rate
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        """ Main processing step - called each period 
+        
+        Note weighted error is calculated here.
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        
+        """
         actual = self._base
         predicted = self._learned_vals
         prediction_error = actual - predicted
-        weighted_error = prediction_error * cue_dist * behaviour_dist
-        self._prediction_error = prediction_error
-        self._weighted_error = weighted_error
-        rates = self.get_rates(cue_dist, behaviour_dist)
-        self._learned_vals += prediction_error * rates
+        occurances = self.get_occurances(cue_dist, behaviour_dist)
+        weighted_error = prediction_error * occurances
+        self._prediction_error = prediction_error  # Logged in history
+        self._weighted_error = weighted_error  # Needed later
+        self.learn(weighted_error)
         self.decay_vals(cue_dist)
         
     def get_prediction_error(self):
-        # print('pred', self._prediction_error)
         return self._prediction_error
         
     def get_weighted_error(self):
         return self._weighted_error
-        
-    def get_behaviour_tendency(self):
-        return np.zeros_like(self._base)
 
 
 class Routines(Motivator):
+    """ Routines due to model-free reinforcement learning 
+    
+    This simple class reinforces behaviour on the basis of prediction errors
+    that are weighted by frequency of occurance.
+    
+    Args:
+        [Defaults from Motivator]
+        rate (float): The learning rate. Defaults to 3.0.
+    
+    """
+    
     UNIQUE_SEED_MODIFIER = 564
     START_ZEROED = True
     
@@ -183,6 +306,7 @@ class Routines(Motivator):
         self._learned_vals += weighted_error * self._rate
 
     def set_do_learn(self, flag):
+        """ Turn learning off or on """
         self._do_learn = flag
 
     def get_behaviour_tendency(self):
@@ -196,12 +320,32 @@ class Routines(Motivator):
     
 
 class Planned_Control(Motivator):
+    """ Decision making for niche construction 
+    
+    This implimentation assumes a finite amount of time/effort is available
+    with which to change the environment. It is used to calculate a set of 
+    effort values for each cue that are ultimately used as a multiplier on
+    the normal environmental cues distribution.
+    
+    In each period, a number of 'decisions' are made. Once effort capacity 
+    is reached, these decisions compare two cues and calculate whether it
+    would increase net weighted prediction error if the effort was swapped
+    or not.
+
+    Args:
+        [Defaults from Motivator]
+        rate (float): The discrete effort increment size. Defaults to 0.01.
+        num (int): The number of 'decisions' made per period.
+    
+    """
+
     UNIQUE_SEED_MODIFIER = 531
     START_ZEROED = True
     
-    """ Niche construction """
-    
-    def __init__(self, *args, rate=0.01, num=20, f_tot=0.1,
+    def __init__(self, *args,
+                 rate=0.01,
+                 num=20,
+                 f_tot=0.1,
                  **kwargs):
         self._rate = rate
         self._num = num
@@ -211,9 +355,6 @@ class Planned_Control(Motivator):
 
     def set_do_learn(self, flag):
         self._do_learn = flag
-
-    def set_behaviour(self, behaviour):
-        self._behaviour = behaviour
     
     def cue_mod(self, modifier):
         adj = modifier
@@ -387,16 +528,16 @@ class Person():
         self.history['prediction_error'].append(self.prediction_error)
     
     def process(self, cue_dist):
-        behaviour_dist_xs = np.ones_like(cue_dist)
+        behaviour_dist_ys = np.ones_like(cue_dist)
         motivators = [self._instincts,
                       self._routines,
                       self._planned_control,
                       ]
         for motivator in motivators:
-            behaviour_dist_xs += motivator.get_behaviour_tendency()
+            behaviour_dist_ys += motivator.get_behaviour_tendency()
         # TODO: Use dict for motivators
         weighted_error = self.predictor.get_weighted_error()
-        behaviour_dist = logistic.cdf(behaviour_dist_xs)
+        behaviour_dist = logistic.cdf(behaviour_dist_ys)
         mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
         for motivator in self.motivators:
             motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
