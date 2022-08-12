@@ -45,7 +45,7 @@ class Simplest():
         population.run_generation()
         return population
         
-    def hedonic_adaptation(self, pop, random_seed=0,
+    def hedonic_adaptation_down(self, pop, random_seed=0,
                            j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
         pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
@@ -65,8 +65,20 @@ class Simplest():
         population.run_generation()
         return population
     
-    def hedonic_adaptation_3(self, pop, **kwargs):
-        return self.hedonic_adaptation(pop, ind=60, **kwargs)
+    def hedonic_adaptation_up(self, pop, **kwargs):
+        return self.hedonic_adaptation_down(pop, ind=60, **kwargs)
     
+    def run_all(self):
+        pop = s.run()
+        pop_ha_down = self.hedonic_adaptation_down(pop)
+        pop_ha_up = self.hedonic_adaptation_down(pop)
+        pop.plot_all()
+        fig = pop_ha_down.pop[0].plot_wb_history(xlim=(190, 360),
+                                                 label='avoidance cue')
+        pop_ha_up.pop[0].plot_wb_history(xlim=(190, 360), fignum=fig.number,
+                                         label='approach cue')
+        plt.figure(fig.number)
+        plt.legend()
+        
     
 

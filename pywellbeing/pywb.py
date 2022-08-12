@@ -601,8 +601,8 @@ class Person():
     def subj_wb_history_decayed(self, k=3, n=100, decay=0.9):
         return self.subj_wb_history(k=k, n=n, decay=decay)
     
-    def plot_wb_history(self, xlim=None):
-        plt.figure()
+    def plot_wb_history(self, xlim=None, fignum=None, label=None):
+        plt.figure(num=fignum)
         vals = []
         for p in self.pop:
             inds, v = p.subj_wb_history()
@@ -610,11 +610,12 @@ class Person():
         vals = np.array(vals)
         means = np.mean(vals, axis=0)
         std = np.std(vals, axis=0)
-        plt.plot(inds, vals[:10].T)
+        plt.plot(inds, vals[:10].T, label=label)
         plt.xlabel('Period')
         plt.ylabel('Subjective wellbeing')
         plt.xlim(xlim)
         plt.tight_layout()
+        return plt.gcf()
     
     def obj_wb_history(self):
         n = len(self.history['cue_dist'])
