@@ -6,32 +6,62 @@ Created on Sat May  7 13:17:45 2022
 """
 
 import numpy as np
+import matplotlib.pyplot as plt
 from scipy.stats import genpareto, norm, logistic
+from pathlib import Path
+
+settings = {
+    'n': 80,  # The number of cues along x.
+    'x_max': 3,  # The maximum x-value magnitude cues.
+}
 
 
-def get_xs(x_max, n):
-    return np.linspace(-x_max, x_max, n)
+def get_xs():
+    return np.linspace(-settings['x_max'], settings['x_max'], settings['n'])
+
+
+class Random():
+    def __init__(self, random_seed=None):
+        self.set_random_seed(random_seed)
+    
+    def set_random_seed(self, random_seed):
+        self._rng = np.random.default_rng(random_seed)
+        
+    def get_rng(self):
+        return self._rng
+
+
+random = Random()
 
 
 class Context():
-    """ Generates events with some effect with some likelihood """
-    def __init__(self, n, x_max, c=1.0, scale=1.0, prob=1.0, loc=0.0):
-        self._params = {'n': n,
-                        'x_max': x_max,
-                        'c': c,
-                        'scale': scale,
-                        'prob': prob,
-                        'loc': loc}
+    """ Generates events with some effect with some likelihood 
     
-    def setup(self, random_seed=None):
-        p = self._params
-        xs = get_xs(p['x_max'], p['n'])
-        nom = norm.pdf(xs, loc=p['loc'])
-        rs = np.random.default_rng(random_seed)
-        probs = [1 - p['prob'], p['prob']]
-        ps = rs.choice([0, 1], size=p['n'], p=probs) * nom
+    Args:
+        n (float): The number of cues along x.
+        x_max (float): The maximum x-value of a cue.
+        scale (float): The standard for the (normal) distribution of
+            probabilities for each cue. Defaults to 1.0.
+        prob (float): The probability factor on each cue. Defaults to 1.0.
+        loc (float): The mean of the normal distribution. Defaults to 0.0.
+        
+    """
+    def __init__(self, scale=1.0, prob=1.0, loc=0.0):
+        self._scale = scale
+        self._prob = prob
+        self._loc = loc
+    
+    def setup(self):
+        """ Setup the cues 
+        
+        """
+        xs = get_xs()
+        n = settings['n']
+        nom = norm.pdf(xs, loc=self._loc)
+        probs = [1 - self._prob, self._prob]
+        ps = random.get_rng().choice([0, 1], size=n, p=probs) * nom
         self.xs = xs
-        self.inds = np.arange(p['n'])
+        self.inds = np.arange(n)
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
     def sample(self):
@@ -40,35 +70,62 @@ class Context():
     def expected_value(self):
         return np.mean(self.xs * self.ps)
 
+    def plot(self):
+        plt.figure()
+        plt.scatter(self.xs, self.ps)
+        plt.xlabel('RL impact')
+        plt.ylabel('Occurance likelihood')
+        plt.tight_layout()
+
 
 class Motivator():
-    UNIQUE_SEED_MODIFIER = 37
-    START_ZEROED = False
-    RANGE = 1.5
-    SD = 0.5
+    """ Base motivator class 
     
-    def __init__(self, n, x_max, random_seed=None, init=None, decay=0.98):
+    This class is used as a base for other classes. It provides common
+    functionality such as the setup of random values, breeding with another
+    of the same time, and history recording.
+    
+    Args:
+        init (ndarray): An optional set of initial values. Used for breeding.
+        decay (float): The rate at which learned values decay per period. 
+            This represents 'forgetting'. Defaults to 0.98, which means 
+            the next period has 0.98 times the previous value.
+        z_range (float): To avoid selected values from increasing in 
+            magnitude to unrealistic levels, they are capped to this 
+            absolute magnitude. Defaults to 1.5.
+        z_sd (float): The standard deviation of random error in values.
+            Defaults to 0.5.
+    
+    """
+    
+    START_ZEROED = False  # True if no inheritence occurs
+    
+    def __init__(self,
+                 init=None,
+                 decay=0.98,
+                 z_range=1.5,
+                 z_sd=0.5):
         self._decay = decay
+        self._z_range = z_range
+        self._z_sd = z_sd
         self._history = {'vals': [],
                          'behaviour_tendency': [],
                          'cue_dist_modifier': []}
-        self.setup(n, x_max, random_seed=random_seed, init=init)
+        self.setup(init=init)
         
-    def setup(self, n, x_max, random_seed=None, init=None):
+    def setup(self, init=None):
+        n = settings['n']
         if self.START_ZEROED:
             self._base = np.zeros(n)
             self._learned_vals = np.zeros(n)
         elif init is None:
-            random_seed = int(np.random.rand(1)*1e6) if random_seed is None else random_seed
-            random_seed += self.UNIQUE_SEED_MODIFIER
-            rs = np.random.default_rng(random_seed)
-            base = rs.normal(scale=self.SD, size=n)
+            base = random.get_rng().normal(scale=self._z_sd, size=n)
             self._base = base
             self._learned_vals = np.zeros_like(base)
         else:
             self._base = init.copy()
             self._learned_vals = np.zeros_like(self._base)
-        self.xs = xs = get_xs(x_max, n)
+        self.n = n
     
     def reset(self):
         self._learned_vals = np.zeros_like(self._base)
@@ -84,6 +141,21 @@ class Motivator():
     def record_history(self):
         pass
     
+    def get_occurances(self, cue_dist, behaviour_dist):
+        """ Get the occurance frequency
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+                The behaviour_dist values should be between 0 and 1.
+        
+        Returns:
+            ndarray: The occurance frequency
+        """
+        return cue_dist * behaviour_dist
+    
     def process(self, cue_dist, behaviour_dist, weighted_error):
         raise NotImplementedError
     
@@ -94,19 +166,27 @@ class Motivator():
         raise NotImplementedError
     
     def get_cue_dist_modifier(self):
-        return np.zeros_like(self.xs)
+        return np.zeros(self.n)
 
     def breed(self, other):
-        n = len(self.xs)
-        x_max = self.xs[-3]
-        from_other = np.random.choice([False, True], size=n)
+        """ Breed this motivator with another of the same kind 
+        
+        Args:
+            other: Another instance of the same class of motivator.
+        
+        Returns:
+            A child motivator of the same class, with values randomly chosen
+            from each parent.
+        
+        """
+        n = self.n
+        from_other = random.get_rng().choice([False, True], size=n)
         inherited = self._base.copy()
         inherited[from_other] = other._base[from_other]
-        inherited = np.clip(inherited, -self.RANGE, self.RANGE)
-        rs = np.random.default_rng()
-        error = rs.normal(scale=self.SD, size=n)
+        inherited = np.clip(inherited, -self._z_range, self._z_range)
+        error = random.get_rng().normal(scale=self._z_sd, size=n)
         init = inherited + error
-        new_motivator = self.__class__(n=n, x_max=x_max, init=init)
+        new_motivator = self.__class__(init=init)
         return new_motivator
     
     def decay_vals(self, cue_dist):
@@ -114,6 +194,12 @@ class Motivator():
         
     
 class Instincts(Motivator):
+    """ Instinct based motivator
+    
+    This simply outputs a behaviour tendency based on the inherited values.
+
+    """
+    
     UNIQUE_SEED_MODIFIER = 25
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
@@ -125,157 +211,307 @@ class Instincts(Motivator):
 
 
 class Prediction_Error(Motivator):
-    UNIQUE_SEED_MODIFIER = 16
+    """ Calculation of (reward) prediction error 
+    
+    This class uses inherited cue valence to calculate prediction error.
+    It uses a decay rate per period to ensure it never goes to 0 for 
+    any cue.
+    
+    Args:
+        [Defaults from Motivator]
+        rate (float): A rate at which predicted values are learned from
+            occurances. Defaults to 2.0.
+    
+    """
+    
+    
     RANGE = 3.0
     
-    def __init__(self, *args, rate=0.008, **kwargs):
+    def __init__(self, *args, rate=2, **kwargs):
         self._rate = rate
         super().__init__(*args, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
-        self._weighted_error_rate = np.zeros_like(self._base)
+    
+    def learn(self, weighted_error):
+        """ Learning rates based on occurance frequency 
+
+        Note that learning only occurs when the situation has effect - this
+        is termed an occurance. The rate of learning is proportional to
+        the frequency of occurances.
         
+        Warning:
+            For stability, the maximum weighted error should be
+            less than 1. This is normally the case. 
+
+        Args:
+            occurances (ndarray): An array of occurance frequencies.
+            prediction_error (ndarray): The prediction error per cue.
+                
+        """
+        self._learned_vals += weighted_error * self._rate
+    
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        """ Main processing step - called each period 
+        
+        Note weighted error is calculated here.
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        
+        """
         actual = self._base
         predicted = self._learned_vals
         prediction_error = actual - predicted
-        weighted_error = prediction_error * cue_dist * behaviour_dist * 100
-        self._prediction_error = prediction_error
-        self._weighted_error = weighted_error
-        self._weighted_error_rate = weighted_error / cue_dist
-        self._learned_vals += weighted_error * self._rate
+        occurances = self.get_occurances(cue_dist, behaviour_dist)
+        weighted_error = prediction_error * occurances
+        self._prediction_error = prediction_error  # Logged in history
+        self._weighted_error = weighted_error  # Needed later
+        self.learn(weighted_error)
         self.decay_vals(cue_dist)
         
     def get_prediction_error(self):
-        # print('pred', self._prediction_error)
         return self._prediction_error
         
     def get_weighted_error(self):
         return self._weighted_error
-    
-    def get_weighted_error_rate(self):
-        return self._weighted_error_rate
-    
-    def get_behaviour_tendency(self):
-        return np.zeros_like(self._base)
 
 
 class Routines(Motivator):
-    UNIQUE_SEED_MODIFIER = 564
+    """ Routines due to model-free reinforcement learning 
+    
+    This simple class reinforces behaviour on the basis of prediction errors
+    that are weighted by frequency of occurance.
+    
+    Args:
+        [Defaults from Motivator]
+        rate (float): The learning rate. Defaults to 3.0.
+    
+    """
+    
     START_ZEROED = True
     
-    def __init__(self, *args, rate=0.01, **kwargs):
+    def __init__(self, *args, rate=3.0, **kwargs):
         self._rate = rate
+        self._do_learn = True
         super().__init__(*args, **kwargs)
     
     def learn(self, weighted_error):
         self._learned_vals += weighted_error * self._rate
 
+    def set_do_learn(self, flag):
+        """ Turn learning off or on """
+        self._do_learn = flag
+
     def get_behaviour_tendency(self):
         return self._learned_vals
 
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        if not self._do_learn:
+            return
         self.learn(weighted_error)
         self.decay_vals(cue_dist)
     
 
 class Planned_Control(Motivator):
-    UNIQUE_SEED_MODIFIER = 531
+    """ Decision making for niche construction 
+    
+    This implimentation assumes a finite amount of time/effort is available
+    with which to change the environment. It is used to calculate a set of 
+    effort values for each cue that are ultimately used as a multiplier on
+    the normal environmental cues distribution.
+    
+    In each period, a number of 'decisions' are made. Once effort capacity 
+    is reached, these decisions compare two cues and calculate whether it
+    would increase net weighted prediction error if the effort was swapped
+    or not.
+
+    Args:
+        [Defaults from Motivator]
+        rate (float): The discrete effort increment size. Defaults to 0.01.
+        num (int): The number of 'decisions' made per period.
+    
+    """
+
     START_ZEROED = True
     
-    """ Niche construction """
-    
-    def __init__(self, *args, rate=0.01, num=20, f_tot=0.1,
+    def __init__(self, *args,
+                 rate=0.01,
+                 num=20,
+                 f_tot=0.1,
                  **kwargs):
         self._rate = rate
         self._num = num
+        self._do_learn = True
         super().__init__(*args, **kwargs)
-        self._tot = len(self.xs) * f_tot
+        self._n = settings['n']
+        self._tot = self._n * f_tot
 
-    def set_behaviour(self, behaviour):
-        self._behaviour = behaviour
+    def set_do_learn(self, flag):
+        """ Turn learning off or on """
+        self._do_learn = flag
     
-    def cue_mod(self, modifier):
-        adj = modifier
-        return 5.0**adj 
+    def cue_mod(self, effort):
+        """ This calculates the multiplier used on the cue distribution 
+        
+        Args:
+            modifier (ndarray): An array of learned y values that correspond
+            with effort.
+            
+        Returns:
+            ndarray: An array of modification factors.
+        """
+        return 5.0**effort
     
-    def _learn_unlim(self, weighted_error):
+    def _learn_under_effort_capacity(self, weighted_error):
+        """ Learning that happens initially when effort is under capacity 
+
+        Args:
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        
+        Returns:
+            ndarray: The array of incremental changes to make to effort.
+        """
         err = weighted_error
-        changes = np.ones_like(self.xs) * self._rate
+        changes = np.ones(self._n) * self._rate
         changes = np.copysign(changes, err)
-        self._learned_vals += changes
+        return changes
     
-    def _learn_lim(self, cue_dist, weighted_error):
-        """ TODO: Cap effort somehow """
+    def _learn_at_effort_capacity(self, cue_dist, weighted_error):
+        """ Learning that happens when effort is at capacity 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+                
+        Returns:
+            ndarray: The array of incremental changes to make to effort.
+        """
         err = weighted_error
         effort = self._learned_vals
-        d_effort = (self.cue_mod(effort + self._rate) - self.cue_mod(effort)) * cue_dist
-        inds = np.arange(0, len(self.xs), 1)
-        A = np.random.choice(inds, size=self._num)
-        B = np.random.choice(inds, size=self._num)
+        d_effort = (self.cue_mod(effort + self._rate) 
+                  - self.cue_mod(effort)) * cue_dist
+        inds = np.arange(0, self._n, 1)
+        A = random.get_rng().choice(inds, size=self._num)
+        B = random.get_rng().choice(inds, size=self._num)
         diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
         direction = np.ones_like(A)
         direction[diff < 0] = -1
-        changes = np.zeros_like(self.xs)
+        changes = np.zeros(self._n)
         changes[A] = direction * self._rate
         changes[B] = -direction * self._rate
-        self._learned_vals += changes
+        return changes
     
     def learn(self, cue_dist, weighted_error):
+        """ Main learning step - called each period 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment.
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        """
         if np.sum(np.abs(self._learned_vals)) >= self._tot:
-            return self._learn_lim(cue_dist, weighted_error)
+            changes = self._learn_at_effort_capacity(cue_dist, weighted_error)
         else:
-            return self._learn_unlim(weighted_error)
+            changes = self._learn_under_effort_capacity(weighted_error)
+        self._learned_vals += changes
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        """ Main processing step - called each period 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment (and modified by effort).
+            behaviour_dist (ndarray): An array of behavioural responses that
+                determine whether the situation has effect (an occurance).
+            weighted_error (ndarray): An array of prediction errors weighted
+                by occurance frequency.
+        """
+        if not self._do_learn:
+            return
         self.learn(cue_dist, weighted_error)
         self.decay_vals(cue_dist)
 
     def get_behaviour_tendency(self):
-        """ Don't modify behavioural responses """
-        return np.zeros_like(self.xs)
+        """ Return zeros to not modify behavioural responses """
+        return np.zeros(self._n)
     
     def get_cue_dist_mod(self):
-        mod = self.cue_mod(self._learned_vals)
-        return mod
+        """ Return the modification factors based on effort"""
+        return self.cue_mod(self._learned_vals)
     
     def get_modified_cue_dist(self, cue_dist):
+        """ Return the modified cue distribution that's changed by effort 
+        
+        Args:
+            cue_dist (ndarray): An array of cue frequencies presented by
+                the environment (and modified by effort).
+                
+        Returns:
+            ndarray: The new distribution of cues modified by effort to be 
+            used in the next period.
+        """
         mod = self.cue_mod(self._learned_vals)
         return mod * cue_dist
         
 
 class Person():
-    def __init__(self, n, x_max, motivators=None, a_decay=0.97):
-        self.xs = get_xs(x_max, n)
+    def __init__(self, motivators=None, a_decay=0.97,
+                 history=False):
         self.setup(motivators)
         self._a_decay = a_decay
+        self._record_history = history
             
-    def setup(self, motivators=None, random_seed=None):
-        n = len(self.xs)
-        x_max = self.xs[-1]
+    def setup(self, motivators=None):
         if motivators is None:
-            self._predictor = Prediction_Error(n, x_max, random_seed=random_seed)
-            self._instincts = Instincts(n, x_max, random_seed=random_seed)
-            self._routines = Routines(n, x_max, random_seed=random_seed)
-            self._planned_control = Planned_Control(n, x_max,
-                                                    random_seed=random_seed)
+            self._predictor = Prediction_Error()
+            self._instincts = Instincts()
+            self._routines = Routines()
+            self._planned_control = Planned_Control()
         else:
             self.set_motivators(motivators)
-        self._random_seed = random_seed
-        self.history = {'cue_dist': [], 'behaviour_dist': [],
-                        'weighted_error': []}
+        self.history = {
+            'instincts': [],
+            'reinforcement': [],
+            'niche_effort': [],
+            'cue_dist': [],
+            'behaviour_dist': [],
+            'weighted_error': [],
+            'prediction_error': []
+            }
     
     def reset(self):
-        self.history = {'cue_dist': [], 'behaviour_dist': [],
-                        'weighted_error': []}
+        self.history = {
+            'instincts': [],
+            'reinforcement': [],
+            'niche_effort': [],
+            'cue_dist': [],
+            'behaviour_dist': [],
+            'weighted_error': [],
+            'prediction_error': []
+            }
         for motivator in self.motivators:
             motivator.reset()
     
     def copy(self):
-        n = len(self.xs)
-        x_max = self.xs[-1]
-        return Person(n, x_max, motivators=self.motivators,
+        return Person(motivators=self.motivators,
                       a_decay=self._a_decay)
+    
+    def set_record_history(self, history):
+        self._record_history = history
+    
+    def set_do_learn(self, flag):
+        self._planned_control.set_do_learn(flag)
+        self._routines.set_do_learn(flag)
     
     @property
     def predictor(self):
@@ -300,10 +536,26 @@ class Person():
     @property
     def niche_effort(self):
         return self.planner.learned_vals
+        
+    @property
+    def niche_mod(self):
+        return self.planner.cue_mod(self.niche_effort)
     
     @property
-    def response_effort(self):
-        return self.self.planner.get_behaviour_tendency()
+    def cue_dist(self):
+        return self.history['cue_dist'][-1]
+
+    @property
+    def behaviour_dist(self):
+        return self.history['behaviour_dist'][-1]
+
+    @property
+    def weighted_error(self):
+        return self.history['weighted_error'][-1]
+    
+    @property
+    def prediction_error(self):
+        return self.predictor.get_prediction_error()
     
     @property
     def motivators(self):
@@ -318,28 +570,51 @@ class Person():
         self.history['cue_dist'].append(cue_dist)
         self.history['behaviour_dist'].append(behaviour_dist)
         self.history['weighted_error'].append(weighted_error)
+        if not self._record_history:
+            return
+        self.history['instincts'].append(self.instincts)
+        self.history['reinforcement'].append(self.reinforcement)
+        self.history['niche_effort'].append(self.niche_effort)
+        self.history['prediction_error'].append(self.prediction_error)
     
     def process(self, cue_dist):
-        behaviour_dist_xs = np.ones_like(cue_dist)
+        behaviour_dist_ys = np.ones_like(cue_dist)
         motivators = [self._instincts,
                       self._routines,
                       self._planned_control,
                       ]
         for motivator in motivators:
-            behaviour_dist_xs += motivator.get_behaviour_tendency()
-        # TODO: Use dict for motivators
+            behaviour_dist_ys += motivator.get_behaviour_tendency()
         weighted_error = self.predictor.get_weighted_error()
-        behaviour_dist = logistic.cdf(behaviour_dist_xs)
+        behaviour_dist = logistic.cdf(behaviour_dist_ys)
         mod_cue_dist = self.planner.get_modified_cue_dist(cue_dist)
         for motivator in self.motivators:
             motivator.process(mod_cue_dist, behaviour_dist, weighted_error)
         self.store_history(mod_cue_dist, behaviour_dist, weighted_error)
 
-    def subj_wb_history(self, k=3, n=5, decay=None):
+    def subj_wb_history(self, k=3, n=1, decay=None):
         n_hist = len(self.history['cue_dist'])
         indices = np.arange(2, n_hist, 1)
         wb = [self.subjective_wellbeing(i=i, n=n, decay=decay)[k] for i in indices]
         return indices, np.array(wb)
+    
+    def subj_wb_history_decayed(self, k=3, n=100, decay=0.9):
+        return self.subj_wb_history(k=k, n=n, decay=decay)
+    
+    def plot_wb_history(self, xlim=None):
+        plt.figure()
+        vals = []
+        for p in self.pop:
+            inds, v = p.subj_wb_history()
+            vals.append(v)
+        vals = np.array(vals)
+        means = np.mean(vals, axis=0)
+        std = np.std(vals, axis=0)
+        plt.plot(inds, vals[:10].T)
+        plt.xlabel('Period')
+        plt.ylabel('Subjective wellbeing')
+        plt.xlim(xlim)
+        plt.tight_layout()
     
     def obj_wb_history(self):
         n = len(self.history['cue_dist'])
@@ -347,10 +622,11 @@ class Person():
         wb = [self.objective_wellbeing(i) for i in indices]
         return indices, np.array(wb)
 
-    def subjective_wellbeing(self, i=None, n=5, decay=None):
+    def subjective_wellbeing(self, i=None, n=1, decay=None):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
-        neg_xs = self.xs < 0
+        xs = get_xs()
+        neg_xs = xs < 0
         costs_benefits = np.array(self.history['weighted_error'][start:end])
         inds = np.arange(end, start, -1)
         decay = self._a_decay if decay is None else decay
@@ -360,17 +636,17 @@ class Person():
         neg = np.sum(sums[neg_xs])
         pos = np.sum(sums[~neg_xs])
         net = np.sum(sums)
-        ratio = pos / (pos - neg)
+        ratio = pos / (abs(pos) + abs(neg))
         return neg, pos, net, ratio
     
-    def objective_wellbeing(self, i=None, n=1000, decay=0.999):
+    def objective_wellbeing(self, i=None, n=1000, decay=1):
         end = len(self.history['cue_dist']) - 1 if i is None else i
         start = max(0, end - n)
         inds = np.arange(end, start, -1)
         weights = np.power(self._a_decay, inds) + 1e-2
         cue_dist = np.array(self.history['cue_dist'][start:end])
         behaviour_dist = np.array(self.history['behaviour_dist'][start:end])
-        xs = self.xs.reshape(1, -1)
+        xs = get_xs().reshape(1, -1)
         costs_benefits = xs * cue_dist * behaviour_dist
         totals = weights.reshape(-1, 1) * costs_benefits * 1000
         return np.sum(totals) / np.sum(weights)
@@ -381,9 +657,7 @@ class Person():
         for m1, m2 in zip(self.motivators, other.motivators):
             new = m1.breed(m2)
             motivators.append(new)
-        n = len(self.xs)
-        x_max = self.xs[-1]
-        child = Person(n, x_max, motivators=motivators)
+        child = Person(motivators=motivators)
         return child
 
 
@@ -424,6 +698,11 @@ class Population():
                         'niche_effort': [],
                         'response_effort': [],
                         'reinforcement': [],
+                        'cue_dist': [],
+                        'behaviour_dist': [],
+                        'occurances': [],
+                        'weighted_error': [],
+                        'prediction_error': [],
                         'obj_wb': [],
                         'subj_wb': [],
                         }
@@ -431,12 +710,17 @@ class Population():
     def set_life_history(self, lh):
         self.lh = lh
     
-    def set_population(self, pop_size, random_seed=None, *args, **kwargs):
+    def set_pop(self, population, reset=True):
+        self.pop = [p.copy() for p in population.pop]
+        if reset:
+            for p in self.pop:
+                p.reset()
+    
+    def set_population(self, pop_size, n_history=10, *args, **kwargs):
         pop = []
         for i in range(pop_size):
-            person = Person(*args, **kwargs)
-            seed = random_seed + 33 * i
-            person.setup(random_seed=seed)
+            history = True if i < n_history else False
+            person = Person(*args, history=history, **kwargs)
             pop.append(person)
         self.pop = pop
     
@@ -452,31 +736,55 @@ class Population():
     
     def get_ave_obj_wb(self):
         wbs = [p.objective_wellbeing() for p in self.pop]
-        return np.mean(wbs)
+        return np.mean(wbs), np.std(wbs)
 
     def get_ave_subj_wb(self):
         wbs = [p.subjective_wellbeing() for p in self.pop]
-        return np.mean(wbs, axis=0)
+        return np.mean(wbs, axis=0), np.std(wbs, axis=0)
     
     def get_ave_valence(self):
-        return np.mean(np.array([p.valence for p in self.pop]), axis=0)
+        vals = np.array([p.valence for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_instincts(self):
-        return np.mean(np.array([p.instincts for p in self.pop]), axis=0)
+        vals = np.array([p.instincts for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_niche_effort(self):
-        return np.mean(np.array([p.niche_effort for p in self.pop]), axis=0)
+        vals = np.array([p.niche_effort for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def get_ave_reinforcement(self):
-        return np.mean(np.array([p.reinforcement for p in self.pop]), axis=0)
+        vals = np.array([p.reinforcement for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_cue_dist(self):
+        vals = np.array([p.cue_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+
+    def get_ave_behaviour_dist(self):
+        vals = np.array([p.behaviour_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_weighted_error(self):
+        vals = np.array([p.weighted_error for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_prediction_error(self):
+        vals = np.array([p.prediction_error for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
+    
+    def get_ave_occurances(self):
+        vals = np.array([p.cue_dist * p.behaviour_dist for p in self.pop])
+        return np.mean(vals, axis=0), np.std(vals, axis=0)
     
     def breed(self, p_survive=0.5):
         n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
         top, bottom, breeders = self._split(n_fail=n_fail)
         new = []
         for i in range(len(self.pop)):
-            mate = other = np.random.choice(top, size=1)[0]
-            other = np.random.choice(breeders, size=1)[0]
+            mate = other = random.get_rng().choice(top, size=1)[0]
+            other = random.get_rng().choice(breeders, size=1)[0]
             new.append(mate.breed(other))
         self.pop = new
     
@@ -491,8 +799,13 @@ class Population():
         hist = self.history
         hist['valence'].append(self.get_ave_valence())
         hist['instincts'].append(self.get_ave_instincts())
-        hist['niche_effort'].append(self.get_ave_niche_effort())
         hist['reinforcement'].append(self.get_ave_reinforcement())
+        hist['niche_effort'].append(self.get_ave_niche_effort())
+        hist['cue_dist'].append(self.get_ave_cue_dist())
+        hist['behaviour_dist'].append(self.get_ave_behaviour_dist())
+        hist['occurances'].append(self.get_ave_occurances())
+        hist['weighted_error'].append(self.get_ave_weighted_error())
+        hist['prediction_error'].append(self.get_ave_prediction_error())
         hist['obj_wb'].append(self.get_ave_obj_wb())
         hist['subj_wb'].append(self.get_ave_subj_wb())
     
@@ -501,9 +814,100 @@ class Population():
             self.run_generation()
             self.record_hist()
             print(len(self.history['valence']),
-                  self.history['obj_wb'][-1],
-                  self.history['subj_wb'][-1])
+                  self.history['obj_wb'][-1][0],
+                  self.history['subj_wb'][-1][0])
             self.breed(p_survive=p_survive)
         self.run_generation()
         
-    
+    def _save_fig(self, var, folder, fmt='png', i=-1):
+        if folder is None:
+            return
+        path = Path(folder)
+        fname = (path / var).as_posix() + '_i' + str(i) + '.' + fmt
+        plt.savefig(fname=fname, dpi=300, format=fmt)
+     
+    def plot_gen_history(self, var='subj_wb', ylabel='Subjective wellbeing',
+                         label=None,
+                     folder=None, fmt='png', xlim=None, start=None, end=10,
+                     fignum=None, **kwargs):
+        plt.figure(num=fignum)
+        vals = []
+        for p in self.pop[start:end]:
+            inds, v = p.subj_wb_history(**kwargs)
+            vals.append(v)
+        vals = np.array(vals)
+        means = np.mean(vals, axis=0)
+        std = np.std(vals, axis=0)
+        plt.plot(inds, vals.T, label=label)
+        plt.xlabel('Period')
+        plt.ylabel(label)
+        plt.xlim(xlim)
+        plt.tight_layout()
+        self._save_fig(var + '_gen_hist', folder, fmt)
+        
+     
+    def plot_history(self, ax=None, var='obj_wb',
+                     label='Reproductive likelihood',
+                     folder=None, fmt='png'):
+        if ax is None:
+            fig, ax = plt.subplots()
+        inds = np.arange(0, len(self.history['valence']), 1)
+        vals = np.array(self.history[var])
+        if var == 'subj_wb':
+            vals = vals[:,:,3]
+        ax.errorbar(inds,
+                    vals[:,0],
+                    yerr=vals[:,1]*1.96
+                    )
+        ax.set_xlabel('Generation')
+        ax.set_ylabel(label)
+        fig.tight_layout()
+        self._save_fig(var, folder, fmt)
+        
+    def plot(self, var='valence', label='Valence', i=-1, folder=None,
+             fmt='png'):
+        plt.figure()
+        self.history[var]
+        xs = self.pop[0].xs
+        plt.errorbar(xs,
+                     self.history[var][i][0],
+                     yerr=self.history[var][i][1]*1.96,
+                     fmt='o')
+        plt.xlabel('RL impact')
+        plt.ylabel(label)
+        plt.tight_layout()
+        self._save_fig(var, folder, fmt, i=i)
+
+    def plot_all(self, folder=None, fmt='png', i=-1):
+        self.plot_history(var='obj_wb', 
+                          label='Reproductive likelihood',
+                          folder=folder,
+                          fmt=fmt)
+        self.plot_history(var='subj_wb',
+                          label='Subjective wellbeing',
+                          folder=folder,
+                          fmt=fmt)
+        self.plot(var='valence', label='Cue valence',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='instincts', label='Instincts',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='reinforcement', label='Routines',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='niche_effort', label='Niche effort',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='prediction_error', label='Prediction error',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='cue_dist', label='Cue distribution',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='behaviour_dist', label='Behaviour factor',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='occurances', label='Occurance likelihood',
+                  i=i, folder=folder, fmt=fmt)
+        self.plot(var='weighted_error', label='Weighted error',
+                  i=i, folder=folder, fmt=fmt)
+        
+        
+        
+        
+
+        
