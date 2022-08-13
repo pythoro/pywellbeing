@@ -397,17 +397,20 @@ class Planned_Control(Motivator):
         """
         err = weighted_error
         effort = self._learned_vals
-        d_effort = (self.cue_mod(effort + self._rate) 
+        signs = np.copysign(1, effort)
+        d1 = (self.cue_mod(effort + self._rate * signs) 
+                  - self.cue_mod(effort)) * cue_dist
+        d2 = (self.cue_mod(effort - self._rate * signs) 
                   - self.cue_mod(effort)) * cue_dist
         inds = np.arange(0, self._n, 1)
         A = random.get_rng().choice(inds, size=self._num)
         B = random.get_rng().choice(inds, size=self._num)
-        diff = err[A] * d_effort[A] - err[B] *  d_effort[B]
-        direction = np.ones_like(A)
-        direction[diff < 0] = -1
+        delta = err[A] * d1[A] + err[B] *  d2[B]
+        direction = np.ones_like(delta)
+        direction[delta < 0] = -1
         changes = np.zeros(self._n)
-        changes[A] = direction * self._rate
-        changes[B] = -direction * self._rate
+        changes[A] = self._rate * signs[A] * direction
+        changes[B] = -self._rate * signs[B] * direction
         return changes
     
     def learn(self, cue_dist, weighted_error):
@@ -603,11 +606,7 @@ class Person():
     
     def plot_wb_history(self, xlim=None, fignum=None, label=None):
         plt.figure(num=fignum)
-        vals = []
-        for p in self.pop:
-            inds, v = p.subj_wb_history()
-            vals.append(v)
-        vals = np.array(vals)
+        inds, vals = p.subj_wb_history()
         means = np.mean(vals, axis=0)
         std = np.std(vals, axis=0)
         plt.plot(inds, vals[:10].T, label=label)
@@ -883,7 +882,7 @@ class Population():
                           folder=folder,
                           fmt=fmt)
         self.plot_history(var='subj_wb',
-                          label='Subjective wellbeing',
+                          label='Reflective wellbeing',
                           folder=folder,
                           fmt=fmt)
         self.plot(var='valence', label='Cue valence',
