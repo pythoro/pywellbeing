@@ -68,11 +68,11 @@ class Simplest():
     def hedonic_adaptation_up(self, pop, **kwargs):
         return self.hedonic_adaptation_down(pop, ind=60, **kwargs)
     
-    def run_all(self):
+    def run_all(self, folder=None):
         pop = s.run()
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_down(pop)
-        pop.plot_all()
+        pop.plot_all(folder=folder, i=-1)
         fig = pop_ha_down.pop[0].plot_wb_history(xlim=(190, 360),
                                                  label='avoidance cue')
         pop_ha_up.pop[0].plot_wb_history(xlim=(190, 360), fignum=fig.number,

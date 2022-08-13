@@ -867,7 +867,7 @@ class Population():
              fmt='png'):
         plt.figure()
         self.history[var]
-        xs = self.pop[0].xs
+        xs = get_xs()
         plt.errorbar(xs,
                      self.history[var][i][0],
                      yerr=self.history[var][i][1]*1.96,
