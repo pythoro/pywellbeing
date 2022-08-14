@@ -604,12 +604,12 @@ class Person():
     def subj_wb_history_decayed(self, k=3, n=100, decay=0.9):
         return self.subj_wb_history(k=k, n=n, decay=decay)
     
-    def plot_wb_history(self, xlim=None, fignum=None, label=None):
+    def plot_wb_history(self, xlim=None, fignum=None, label=None, **kwargs):
         plt.figure(num=fignum)
-        inds, vals = p.subj_wb_history()
+        inds, vals = self.subj_wb_history()
         means = np.mean(vals, axis=0)
         std = np.std(vals, axis=0)
-        plt.plot(inds, vals[:10].T, label=label)
+        plt.plot(inds, vals, label=label, **kwargs)
         plt.xlabel('Period')
         plt.ylabel('Subjective wellbeing')
         plt.xlim(xlim)

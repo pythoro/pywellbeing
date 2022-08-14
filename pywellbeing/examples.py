@@ -6,6 +6,7 @@ Created on Sun May  8 19:58:32 2022
 """
 
 import matplotlib.pyplot as plt
+from pathlib import Path
 
 from . import pywb
 
@@ -46,7 +47,7 @@ class Simplest():
         return population
         
     def hedonic_adaptation_down(self, pop, random_seed=0,
-                           j=199, k=200, l=0, f=20.0, ind=20, do_learn=False):
+                           j=199, k=30, l=60, f=20.0, ind=20, do_learn=False):
         pywb.random.set_random_seed(random_seed)
         normal = pywb.Context()
         normal.setup()
@@ -71,14 +72,17 @@ class Simplest():
     def run_all(self, folder=None):
         pop = s.run()
         pop_ha_down = self.hedonic_adaptation_down(pop)
-        pop_ha_up = self.hedonic_adaptation_down(pop)
+        pop_ha_up = self.hedonic_adaptation_up(pop)
         pop.plot_all(folder=folder, i=-1)
-        fig = pop_ha_down.pop[0].plot_wb_history(xlim=(190, 360),
-                                                 label='avoidance cue')
-        pop_ha_up.pop[0].plot_wb_history(xlim=(190, 360), fignum=fig.number,
-                                         label='approach cue')
+        fig = pop_ha_down.pop[3].plot_wb_history(xlim=(195, 270),
+                                         label='Avoidance situation',
+                                         linestyle='--')
+        pop_ha_up.pop[3].plot_wb_history(xlim=(195, 270), fignum=fig.number,
+                                         label='Approach situation')
         plt.figure(fig.number)
+        plt.axhline(pop_ha_up.pop[3].subj_wb_history()[1][-1], linestyle=':',
+                    label='Baseline')
         plt.legend()
-        
+        plt.savefig(Path(folder) / 'hedonic_adaptation.png')
     
 
