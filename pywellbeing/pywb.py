@@ -103,7 +103,7 @@ class Motivator():
     def __init__(self,
                  init=None,
                  decay=0.98,
-                 z_range=1.5,
+                 z_range=2.0,
                  z_sd=0.5):
         self._decay = decay
         self._z_range = z_range
@@ -224,8 +224,6 @@ class Prediction_Error(Motivator):
     
     """
     
-    
-    RANGE = 3.0
     
     def __init__(self, *args, rate=2, **kwargs):
         self._rate = rate
