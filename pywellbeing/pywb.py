@@ -104,7 +104,7 @@ class Motivator():
                  init=None,
                  decay=0.98,
                  z_range=2.0,
-                 z_sd=0.5):
+                 z_sd=0.4):
         self._decay = decay
         self._z_range = z_range
         self._z_sd = z_sd

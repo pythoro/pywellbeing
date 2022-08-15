@@ -13,7 +13,7 @@ from . import pywb
 
 class Simplest():
     def run(self, pop_size=300, random_seed=0, j=200,
-            gen=80, p_survive=0.6):
+            gen=160, p_survive=0.6):
         pywb.random.set_random_seed(random_seed)
         context = pywb.Context()
         context.setup()
