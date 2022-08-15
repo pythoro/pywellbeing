@@ -722,47 +722,47 @@ class Population():
     
     def get_ave_obj_wb(self):
         wbs = [p.objective_wellbeing() for p in self.pop]
-        return np.mean(wbs), np.std(wbs)
+        return np.mean(wbs), np.min(wbs), np.max(wbs)
 
     def get_ave_subj_wb(self):
         wbs = [p.subjective_wellbeing() for p in self.pop]
-        return np.mean(wbs, axis=0), np.std(wbs, axis=0)
+        return np.mean(wbs, axis=0), np.min(wbs, axis=0), np.max(wbs, axis=0)
     
     def get_ave_valence(self):
         vals = np.array([p.valence for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_instincts(self):
         vals = np.array([p.instincts for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_niche_effort(self):
         vals = np.array([p.niche_effort for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_reinforcement(self):
         vals = np.array([p.reinforcement for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_cue_dist(self):
         vals = np.array([p.cue_dist for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
 
     def get_ave_behaviour_dist(self):
         vals = np.array([p.behaviour_dist for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_weighted_error(self):
         vals = np.array([p.weighted_error for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_prediction_error(self):
         vals = np.array([p.prediction_error for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def get_ave_occurances(self):
         vals = np.array([p.cue_dist * p.behaviour_dist for p in self.pop])
-        return np.mean(vals, axis=0), np.std(vals, axis=0)
+        return np.mean(vals, axis=0), np.min(vals, axis=0), np.max(vals, axis=0)
     
     def breed(self, p_survive=0.6, p_mates=0.1):
         pop = self.pop
@@ -847,7 +847,7 @@ class Population():
             vals = vals[:,:,3]
         ax.errorbar(inds,
                     vals[:,0],
-                    yerr=vals[:,1]*1.96
+                    yerr=vals[:,1:3]
                     )
         ax.set_xlabel('Generation')
         ax.set_ylabel(label)
