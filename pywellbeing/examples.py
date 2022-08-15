@@ -74,13 +74,14 @@ class Simplest():
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_up(pop)
         pop.plot_all(folder=folder, i=-1)
-        fig = pop_ha_down.pop[0].plot_wb_history(xlim=(195, 270),
+        y = 4
+        fig = pop_ha_down.pop[y].plot_wb_history(xlim=(195, 270),
                                          label='Avoidance situation',
                                          linestyle='--')
-        pop_ha_up.pop[0].plot_wb_history(xlim=(195, 270), fignum=fig.number,
+        pop_ha_up.pop[y].plot_wb_history(xlim=(195, 270), fignum=fig.number,
                                          label='Approach situation')
         plt.figure(fig.number)
-        plt.axhline(pop_ha_up.pop[0].subj_wb_history()[1][-1], linestyle=':',
+        plt.axhline(pop_ha_up.pop[y].subj_wb_history()[1][-1], linestyle=':',
                     label='Baseline')
         plt.legend()
         plt.savefig(Path(folder) / 'hedonic_adaptation.png')

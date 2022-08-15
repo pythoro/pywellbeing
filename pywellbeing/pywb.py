@@ -720,16 +720,6 @@ class Population():
             pop.append(person)
         self.pop = pop
     
-    def _split(self, n_fail, n_top=5):
-        wbs = [p.objective_wellbeing() for p in self.pop]
-        ind_sorted = np.argsort(wbs)
-        top = ind_sorted[-n_top:]
-        bottom = ind_sorted[:n_fail]
-        breeders = ind_sorted[n_fail + n_top:-n_top]
-        pop = np.array(self.pop)
-        breeders_lst = pop[breeders].tolist() + pop[top].tolist()  # Elitist selection
-        return pop[top].tolist(), pop[bottom].tolist(), breeders_lst
-    
     def get_ave_obj_wb(self):
         wbs = [p.objective_wellbeing() for p in self.pop]
         return np.mean(wbs), np.std(wbs)
@@ -774,14 +764,18 @@ class Population():
         vals = np.array([p.cue_dist * p.behaviour_dist for p in self.pop])
         return np.mean(vals, axis=0), np.std(vals, axis=0)
     
-    def breed(self, p_survive=0.5):
-        n_fail = int(np.floor((1 - p_survive) * len(self.pop)))
-        top, bottom, breeders = self._split(n_fail=n_fail)
-        new = []
-        for i in range(len(self.pop)):
-            mate = other = random.get_rng().choice(top, size=1)[0]
-            other = random.get_rng().choice(breeders, size=1)[0]
-            new.append(mate.breed(other))
+    def breed(self, p_survive=0.6, p_mates=0.1):
+        pop = self.pop
+        fitness = [p.objective_wellbeing() for p in pop]
+        fitness_rank = np.argsort(-np.array(fitness))  # descending order
+        S = len(pop)
+        i_survive = int(S * p_survive)
+        i_mates = int(S * p_mates)
+        mate_pool = np.array(pop)[fitness_rank[:i_mates]]
+        breeder_pool = np.array(pop)[fitness_rank[:i_survive]]
+        mates = random.get_rng().choice(mate_pool, size=S)
+        others = random.get_rng().choice(breeder_pool, size=S)
+        new = [mate.breed(other) for mate, other in zip(mates, others)]
         self.pop = new
     
     def run_generation(self):
@@ -805,7 +799,7 @@ class Population():
         hist['obj_wb'].append(self.get_ave_obj_wb())
         hist['subj_wb'].append(self.get_ave_subj_wb())
     
-    def run(self, gen=50, p_survive=0.5):
+    def run(self, gen=50, p_survive=0.6):
         for i in range(gen):
             self.run_generation()
             self.record_hist()
