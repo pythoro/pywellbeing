@@ -13,6 +13,8 @@ from pathlib import Path
 settings = {
     'n': 80,  # The number of cues along x.
     'x_max': 3,  # The maximum x-value magnitude cues.
+    'use_error': True,
+    'use_error_factor': 0.01,
 }
 
 
@@ -73,8 +75,9 @@ class Context():
     def plot(self):
         plt.figure()
         plt.scatter(self.xs, self.ps)
-        plt.xlabel('RL impact')
-        plt.ylabel('Occurance likelihood')
+        plt.xlabel('Change in fitness')
+        plt.ylabel('Occurence likelihood')
+        plt.grid(visible=True, axis='y')
         plt.tight_layout()
 
 
@@ -265,7 +268,10 @@ class Prediction_Error(Motivator):
         """
         actual = self._base
         predicted = self._learned_vals
-        prediction_error = actual - predicted
+        if settings['use_error']:
+            prediction_error = actual - predicted
+        else:
+            prediction_error = actual * settings['use_error_factor']
         occurances = self.get_occurances(cue_dist, behaviour_dist)
         weighted_error = prediction_error * occurances
         self._prediction_error = prediction_error  # Logged in history
@@ -853,6 +859,7 @@ class Population():
                     yerr=[err_minus, err_plus]
                     )
         ax.set_xlabel('Generation')
+        ax.grid(visible=True, axis='y')
         ax.set_ylabel(label)
         fig.tight_layout()
         self._save_fig(var, folder, fmt)
@@ -869,8 +876,9 @@ class Population():
                      means,
                      yerr=[err_minus, err_plus],
                      fmt='o')
-        plt.xlabel('RL impact')
+        plt.xlabel('Change in fitness')
         plt.ylabel(label)
+        plt.grid(visible=True, axis='y')
         plt.tight_layout()
         self._save_fig(var, folder, fmt, i=i)
 
@@ -897,7 +905,7 @@ class Population():
                   i=i, folder=folder, fmt=fmt)
         self.plot(var='behaviour_dist', label='Behaviour factor',
                   i=i, folder=folder, fmt=fmt)
-        self.plot(var='occurances', label='Occurance likelihood',
+        self.plot(var='occurances', label='Occurence likelihood',
                   i=i, folder=folder, fmt=fmt)
         self.plot(var='weighted_error', label='Weighted error',
                   i=i, folder=folder, fmt=fmt)

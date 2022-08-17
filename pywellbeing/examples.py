@@ -13,7 +13,7 @@ from . import pywb
 
 class Simplest():
     def run(self, pop_size=300, random_seed=0, j=200,
-            gen=160, p_survive=0.6):
+            gen=80, p_survive=0.6):
         pywb.random.set_random_seed(random_seed)
         context = pywb.Context()
         context.setup()
@@ -71,9 +71,10 @@ class Simplest():
     
     def run_all(self, folder=None):
         pop = s.run()
+        pop.plot_all(folder=folder, i=0, fmt='svg')
+        pop.plot_all(folder=folder, i=-1, fmt='svg')
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_up(pop)
-        pop.plot_all(folder=folder, i=-1)
         y = 4
         fig = pop_ha_down.pop[y].plot_wb_history(xlim=(195, 270),
                                          label='Avoidance situation',
@@ -84,6 +85,6 @@ class Simplest():
         plt.axhline(pop_ha_up.pop[y].subj_wb_history()[1][-1], linestyle=':',
                     label='Baseline')
         plt.legend()
-        plt.savefig(Path(folder) / 'hedonic_adaptation.png')
+        plt.savefig(Path(folder) / 'hedonic_adaptation.svg', dpi=300, format='svg')
     
 
