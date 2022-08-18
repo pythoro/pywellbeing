@@ -94,7 +94,7 @@ class AMM_Demo():
 
 
 def run_amm(folder=None):
-    s = Simplest()
+    s = AMM_Demo()
     return s.run_all(folder=folder)
     
 
