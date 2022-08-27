@@ -403,9 +403,9 @@ class Planned_Control(Motivator):
         effort = self._learned_vals
         signs = np.copysign(1, effort)
         d1 = (self.cue_mod(effort + self._rate * signs) 
-                  - self.cue_mod(effort)) * cue_dist
+                  - self.cue_mod(effort))
         d2 = (self.cue_mod(effort - self._rate * signs) 
-                  - self.cue_mod(effort)) * cue_dist
+                  - self.cue_mod(effort))
         inds = np.arange(0, self._n, 1)
         A = random.get_rng().choice(inds, size=self._num)
         B = random.get_rng().choice(inds, size=self._num)
