@@ -3,6 +3,9 @@
 Created on Sat May  7 13:17:45 2022
 
 @author: Reuben
+
+The Adaptive Motivation Model (AMM)
+
 """
 
 import numpy as np
@@ -19,10 +22,16 @@ settings = {
 
 
 def get_xs():
+    """ Get the x-vector for situations 
+    
+    Returns:
+        ndarray: The xs vector.
+    """
     return np.linspace(-settings['x_max'], settings['x_max'], settings['n'])
 
 
 class Random():
+    """ Allow for reproducable runs by seeding a random number generator """
     def __init__(self, random_seed=None):
         self.set_random_seed(random_seed)
     
@@ -30,6 +39,11 @@ class Random():
         self._rng = np.random.default_rng(random_seed)
         
     def get_rng(self):
+        """ Get the random number generator 
+        
+        Returns:
+            A numpy random number generator.
+        """
         return self._rng
 
 
@@ -37,7 +51,14 @@ random = Random()
 
 
 class Context():
-    """ Generates events with some effect with some likelihood 
+    """ Generates cues corresponding to effects on fitness
+    
+    The assumption is one cue per situation, and the situation influences
+    fitness by its 'x' value. Each cue occurs at some frequency or 
+    probability.
+    
+    There is capability to modify the distribution randomly, by switching
+    some cues off at random.
     
     Args:
         n (float): The number of cues along x.
@@ -54,7 +75,7 @@ class Context():
         self._loc = loc
     
     def setup(self):
-        """ Setup the cues 
+        """ Setup the situations across the x-vector 
         
         """
         xs = get_xs()
@@ -67,12 +88,14 @@ class Context():
         self.ps = ps / sum(ps)  # Normalise they so sum to 1
 
     def sample(self):
+        """ Sample the probabilities for all cues """
         return self.ps.copy()
     
     def expected_value(self):
         return np.mean(self.xs * self.ps)
 
     def plot(self):
+        """ Convenience method to visualise distribution of cues """
         plt.figure()
         plt.scatter(self.xs, self.ps)
         plt.xlabel('Change in fitness')
@@ -98,6 +121,9 @@ class Motivator():
             absolute magnitude. Defaults to 1.5.
         z_sd (float): The standard deviation of random error in values.
             Defaults to 0.5.
+    
+    Each Motivator has a _base attribute, which is used for inheritance, and
+    a _learned_vals attribute, which is used for learned values.
     
     """
     
@@ -141,11 +167,13 @@ class Motivator():
     def learned_vals(self):
         return self._learned_vals
     
-    def record_history(self):
-        pass
-    
     def get_occurances(self, cue_dist, behaviour_dist):
         """ Get the occurance frequency
+        
+        Occurance frequency is how frequently the outcomes of each cue
+        occur due to the choice between two behaviours. One makes the 
+        outcome occur, one makes it not occur. Each are chosen with
+        some probability given by behaviour_dist.
         
         Args:
             cue_dist (ndarray): An array of cue frequencies presented by
@@ -160,9 +188,11 @@ class Motivator():
         return cue_dist * behaviour_dist
     
     def process(self, cue_dist, behaviour_dist, weighted_error):
+        """ The main call to learn etc. """
         raise NotImplementedError
     
     def get_behaviour_tendency(self):
+        """ Influence of behavioural responses on occurance """
         raise NotImplementedError
     
     def get_weighted_error(self):
@@ -193,6 +223,11 @@ class Motivator():
         return new_motivator
     
     def decay_vals(self, cue_dist):
+        """ Default decay processes 
+        
+        Used to simulate forgetting processes.
+        
+        """
         self._learned_vals *= self._decay
         
     

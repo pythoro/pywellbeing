@@ -51,7 +51,7 @@ class AMM_Demo():
         return population
         
     def hedonic_adaptation_down(self, pop, random_seed=0,
-                           j=199, k=30, l=60, f=20.0, ind=20, do_learn=False):
+                           j=199, k=40, l=60, f=20.0, ind=20, do_learn=False):
         amm.random.set_random_seed(random_seed)
         normal = amm.Context()
         normal.setup()
@@ -73,10 +73,11 @@ class AMM_Demo():
     def hedonic_adaptation_up(self, pop, **kwargs):
         return self.hedonic_adaptation_down(pop, ind=60, **kwargs)
     
-    def run_all(self, folder=None):
-        pop = self.run()
+    def run_all(self, folder=None, pop=None):
+        pop = self.run() if pop is None else pop
         # pop.plot_all(folder=folder, i=0, fmt='svg')
         pop.plot_all(folder=folder, i=-1, fmt='svg')
+        # pop.plot_all(folder=folder, i=0, fmt='svg')
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_up(pop)
         y = 4
