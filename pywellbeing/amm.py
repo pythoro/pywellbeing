@@ -263,9 +263,9 @@ class Prediction_Error(Motivator):
     """
     
     
-    def __init__(self, *args, rate=2, **kwargs):
+    def __init__(self, *args, rate=2, decay=0.99, **kwargs):
         self._rate = rate
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, decay=decay, **kwargs)
         self._prediction_error = np.zeros_like(self._base)
         self._weighted_error = np.zeros_like(self._base)
     

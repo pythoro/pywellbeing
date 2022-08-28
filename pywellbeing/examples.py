@@ -80,7 +80,7 @@ class AMM_Demo():
         # pop.plot_all(folder=folder, i=0, fmt='svg')
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_up(pop)
-        y = 4
+        y = 9
         fig = pop_ha_down.pop[y].plot_wb_history(xlim=(195, 270),
                                          label='Avoidance situation',
                                          linestyle='--')
