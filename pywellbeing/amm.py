@@ -15,7 +15,7 @@ from pathlib import Path
 
 settings = {
     'n': 80,  # The number of cues along x.
-    'x_max': 3,  # The maximum x-value magnitude cues.
+    'x_max': 2,  # The maximum x-value magnitude of cues.
     'use_error': True,
     'use_error_factor': 0.01,
 }
@@ -101,6 +101,9 @@ class Context():
         plt.xlabel('Change in fitness')
         plt.ylabel('Occurence likelihood')
         plt.grid(visible=True, axis='y')
+        ylim = list(plt.ylim())
+        ylim[0] = 0
+        plt.ylim(ylim)
         plt.tight_layout()
 
 

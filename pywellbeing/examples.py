@@ -73,14 +73,20 @@ class AMM_Demo():
     def hedonic_adaptation_up(self, pop, **kwargs):
         return self.hedonic_adaptation_down(pop, ind=60, **kwargs)
     
-    def run_all(self, folder=None, pop=None):
+    def run_all(self, folder=None, pop=None, fmt='svg'):
         pop = self.run() if pop is None else pop
-        # pop.plot_all(folder=folder, i=0, fmt='svg')
-        pop.plot_all(folder=folder, i=-1, fmt='svg')
-        # pop.plot_all(folder=folder, i=0, fmt='svg')
+        # pop.plot_all(folder=folder, i=0, fmt=fmt)
+        pop.plot_all(folder=folder, i=-1, fmt=fmt)
         pop_ha_down = self.hedonic_adaptation_down(pop)
         pop_ha_up = self.hedonic_adaptation_up(pop)
-        y = 9
+        self.plot_adaptation(pop_ha_down, pop_ha_up, y=8, folder=folder,
+                             fmt=fmt)
+        pop.lh.contexts[0]['context'].plot()
+            plt.savefig(Path(folder) / ('initial_cue_dist.' + fmt), dpi=300,
+                        format=fmt)
+        return pop
+        
+    def plot_adaptation(self, pop_ha_down, pop_ha_up, y, folder=None, fmt='svg'):
         fig = pop_ha_down.pop[y].plot_wb_history(xlim=(195, 270),
                                          label='Avoidance situation',
                                          linestyle='--')
@@ -90,12 +96,13 @@ class AMM_Demo():
         plt.axhline(pop_ha_up.pop[y].subj_wb_history()[1][-1], linestyle=':',
                     label='Baseline')
         plt.legend()
-        plt.savefig(Path(folder) / 'hedonic_adaptation.svg', dpi=300, format='svg')
-        return pop
+        if folder is not None:
+            plt.savefig(Path(folder) / ('hedonic_adaptation.' + fmt), dpi=300,
+                        format=fmt)
 
 
-def run_amm(folder=None):
+def run_amm(folder=None, fmt='svg'):
     s = AMM_Demo()
-    return s.run_all(folder=folder)
+    return s.run_all(folder=folder, fmt=fmt)
     
 
