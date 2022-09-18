@@ -5,10 +5,20 @@ Created on Sun May  8 19:58:32 2022
 @author: Reuben
 """
 
+import matplotlib
 import matplotlib.pyplot as plt
 from pathlib import Path
 
 from . import amm
+
+def set_font_size(size=14):
+    """ Convenience function to set font size in figures 
+    
+    Call prior to run_amm.
+    
+    """
+    font = {'size': size}
+    matplotlib.rc('font', **font)    
 
 
 class AMM_Demo():
@@ -82,8 +92,8 @@ class AMM_Demo():
         self.plot_adaptation(pop_ha_down, pop_ha_up, y=8, folder=folder,
                              fmt=fmt)
         pop.lh.contexts[0]['context'].plot()
-            plt.savefig(Path(folder) / ('initial_cue_dist.' + fmt), dpi=300,
-                        format=fmt)
+        plt.savefig(Path(folder) / ('initial_cue_dist.' + fmt), dpi=300,
+                    format=fmt)
         return pop
         
     def plot_adaptation(self, pop_ha_down, pop_ha_up, y, folder=None, fmt='svg'):
