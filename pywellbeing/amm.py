@@ -99,7 +99,7 @@ class Context():
         plt.figure()
         plt.scatter(self.xs, self.ps)
         plt.xlabel('Change in fitness')
-        plt.ylabel('Occurence likelihood')
+        plt.ylabel('Outcome frequency')
         plt.grid(visible=True, axis='y')
         ylim = list(plt.ylim())
         ylim[0] = 0
@@ -943,7 +943,7 @@ class Population():
                   i=i, folder=folder, fmt=fmt)
         self.plot(var='behaviour_dist', label='Behaviour factor',
                   i=i, folder=folder, fmt=fmt)
-        self.plot(var='occurances', label='Occurence likelihood',
+        self.plot(var='occurances', label='Outcome frequency',
                   i=i, folder=folder, fmt=fmt)
         self.plot(var='weighted_error', label='Weighted error',
                   i=i, folder=folder, fmt=fmt)
